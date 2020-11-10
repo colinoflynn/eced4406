@@ -2,6 +2,9 @@
 
 This folder includes a simplified Ghidra setup & quick demo.
 
+You can see a [YouTube Video](https://www.youtube.com/watch?v=sNPFzVOS52Y) of the setup too:
+[![](tubeyou.png)](https://www.youtube.com/watch?v=sNPFzVOS52Y).
+
 ## Example File
 
 Load the example file `basic-passwdcheck-CWLITEARM.hex` to start your exploration.
