@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timing Attack Demo</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --good: #22c55e;
+      --bad: #ef4444;
+      --warn: #f59e0b;
+      --keyText: #111827;
+      --border: #334155;
+      --shadow: rgba(0,0,0,0.35);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(180deg, #020617, #111827 35%, #0f172a);
+      color: var(--text);
+      line-height: 1.4;
+    }
+    .wrap { max-width: 1400px; margin: 0 auto; padding: 24px; }
+    h1, h2, h3 { margin: 0 0 10px; line-height: 1.15; }
+    h1 { font-size: clamp(1.8rem, 3vw, 2.6rem); margin-bottom: 10px; }
+    p, li { color: var(--muted); }
+    .lead { font-size: 1.03rem; max-width: 1050px; margin-bottom: 24px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 22px; align-items: start; }
+    .panel {
+      background: linear-gradient(180deg, rgba(31,41,55,0.92), rgba(15,23,42,0.95));
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 10px 25px var(--shadow);
+    }
+    .subtle { color: var(--muted); font-size: 0.92rem; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0 16px; }
+    button { font: inherit; }
+    .btn {
+      border: none; border-radius: 10px; padding: 10px 14px; cursor: pointer;
+      color: white; background: #2563eb; box-shadow: 0 4px 10px rgba(37,99,235,0.35);
+    }
+    .btn.secondary { background: #475569; box-shadow: none; }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .statusbar {
+      display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between;
+      background: rgba(2,6,23,0.42); border: 1px solid rgba(148,163,184,0.15);
+      border-radius: 14px; padding: 10px 12px; margin-bottom: 14px;
+    }
+    .device { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 18px; align-items: stretch; }
+    .lockbox {
+      background: linear-gradient(180deg, #374151, #1f2937);
+      border: 1px solid #64748b; border-radius: 18px; padding: 16px; position: relative; min-height: 480px;
+    }
+    .brand { font-size: 0.88rem; letter-spacing: 0.18em; text-transform: uppercase; color: #cbd5e1; margin-bottom: 8px; }
+    .screen {
+      background: #020617; border: 2px solid #475569; border-radius: 14px; padding: 14px; min-height: 82px;
+      display: flex; flex-direction: column; justify-content: center; gap: 6px; margin-bottom: 14px;
+    }
+    .pin-display { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 1.9rem; letter-spacing: 0.25em; color: #e2e8f0; }
+    .led-row { display: flex; gap: 18px; align-items: center; margin-bottom: 18px; }
+    .led-wrap { display: flex; align-items: center; gap: 10px; font-size: 0.95rem; color: #cbd5e1; }
+    .led { width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); background: #111827; box-shadow: inset 0 0 8px rgba(0,0,0,0.45); }
+    .led.red.on { background: radial-gradient(circle at 35% 35%, #fecaca, #ef4444 50%, #7f1d1d 80%); box-shadow: 0 0 16px rgba(239,68,68,0.8), inset 0 0 8px rgba(255,255,255,0.2); }
+    .led.green.on { background: radial-gradient(circle at 35% 35%, #dcfce7, #22c55e 50%, #14532d 80%); box-shadow: 0 0 16px rgba(34,197,94,0.8), inset 0 0 8px rgba(255,255,255,0.2); }
+    .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .key {
+      border: none; border-radius: 14px; min-height: 70px; background: linear-gradient(180deg, #f8fafc, #cbd5e1);
+      color: var(--keyText); font-size: 1.5rem; font-weight: 700; cursor: pointer; box-shadow: 0 8px 18px rgba(0,0,0,0.2);
+      transition: transform 0.06s ease, box-shadow 0.08s ease;
+    }
+    .key:active { transform: translateY(2px); box-shadow: 0 4px 10px rgba(0,0,0,0.25); }
+    .side { display: grid; gap: 12px; align-content: start; }
+    .card { background: rgba(2,6,23,0.46); border: 1px solid rgba(148,163,184,0.18); border-radius: 14px; padding: 12px; }
+    .metric { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #e2e8f0; font-size: 0.96rem; }
+    .guess-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.95rem; }
+    .guess-grid div { padding: 6px 8px; background: rgba(148,163,184,0.08); border-radius: 8px; }
+    .log { max-height: 230px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.86rem; white-space: pre-wrap; background: #020617; border-radius: 12px; padding: 10px; border: 1px solid rgba(148,163,184,0.16); color: #cbd5e1; }
+    .scope-box { position: relative; padding-top: 10px; }
+    canvas { width: 100%; height: auto; display: block; background: #020617; border-radius: 12px; border: 1px solid rgba(148,163,184,0.16); }
+    .probe-label { display: inline-block; font-size: 0.85rem; color: #cbd5e1; background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3); padding: 4px 8px; border-radius: 999px; margin-bottom: 8px; }
+    .secret { display: inline-block; padding: 4px 8px; border-radius: 999px; background: rgba(245,158,11,0.14); border: 1px solid rgba(245,158,11,0.24); color: #fde68a; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9rem; }
+
+    .code-card { margin-top: 12px; }
+    .code-span { grid-column: 1 / -1; }
+    .code-block {
+      margin: 0; white-space: pre-wrap; overflow-x: auto; background: #020617; color: #dbeafe;
+      border: 1px solid rgba(148,163,184,0.16); border-radius: 12px; padding: 12px;
+      font: 0.87rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .code-block .comment { color: #93c5fd; }
+    @media (max-width: 1180px) { .device { grid-template-columns: 1fr; } }
+    @media (max-width: 620px) {
+      .grid { grid-template-columns: 1fr; } .wrap { padding: 14px; } .panel { padding: 14px; } .lockbox { min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Timing Attack Demonstration</h1>
+    <p class="lead">
+      This page shows two vulnerable PIN-entry designs. Demo 1 visibly rejects as soon as a wrong digit is pressed, so the attacker learns the first wrong position instantly.
+      Demo 2 waits for all 4 digits, but the internal comparison still returns early, so a scope trace on the LED line reveals the timing difference.
+    </p>
+    <div class="grid">
+      <section class="panel">
+        <h2>Demo 1: Immediate feedback on wrong digit</h2>
+        <p class="subtle">There is no Enter key. Pressing a wrong digit immediately lights the red LED. Correct prefix digits do nothing until all 4 are entered.</p>
+        <div class="statusbar">
+          <div>Secret PIN for this demo: <span id="secret1" class="secret"></span></div>
+          <div class="controls"><button id="reset1" class="btn secondary">New PIN</button></div>
+        </div>
+        <div class="device">
+          <div class="lockbox">
+            <div class="brand">Secure Door 1000</div>
+            <div class="screen"><div class="subtle">Entered PIN</div><div id="display1" class="pin-display">_ _ _ _</div></div>
+            <div class="led-row">
+              <div class="led-wrap"><div id="led1red" class="led red"></div>Reject</div>
+              <div class="led-wrap"><div id="led1green" class="led green"></div>Accept</div>
+            </div>
+            <div id="keypad1" class="keypad"></div>
+          </div>
+          <div class="side">
+            <div class="card">
+              <h3>What leaks?</h3>
+              <p>Each digit is checked immediately against the corresponding secret digit. That means an attacker can walk through the code one position at a time with no timing measurement needed.</p>
+              <div class="guess-grid">
+                <div>Entered digits: <span id="lastGuess1" class="metric">----</span></div>
+                <div>State: <span id="lastState1" class="metric">Idle</span></div>
+                <div>Correct prefix: <span id="prefix1" class="metric">0</span></div>
+                <div>Attempts: <span id="attempts1" class="metric">0</span></div>
+              </div>
+            </div>
+            <div class="card"><h3>Event log</h3><div id="log1" class="log"></div></div>
+          </div>
+        </div>
+        <div class="card code-card code-span">
+          <h3>Example vulnerable C code</h3>
+          <pre class="code-block"><span class="comment">// Immediate feedback version: reject as soon as a wrong digit is pressed.</span>
+static const char stored_pin[4] = {'0', '7', '2', '3'};
+
+bool press_digit_early(char digit, unsigned position)
+{
+    if (digit != stored_pin[position]) {
+        led_reject_on();      <span class="comment">// Visible leak: wrong position discovered immediately</span>
+        clear_entered_pin();
+        return false;
+    }
+
+    append_digit(digit);
+
+    if (position == 3) {
+        led_accept_on();
+        clear_entered_pin();
+        return true;
+    }
+
+    return false;             <span class="comment">// Prefix still valid, keep going</span>
+}</pre>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Demo 2: Waits for full PIN, but timing still leaks</h2>
+        <p class="subtle">This version also has no Enter key. Once 4 digits are entered, it performs the check automatically. The code returns on the first mismatch, and the scope probe shows the LED-line activity lasting longer when more leading digits are correct.</p>
+        <div class="statusbar">
+          <div>Secret PIN for this demo: <span id="secret2" class="secret"></span></div>
+          <div class="controls"><button id="autoAttack2" class="btn">Auto-attack</button><button id="reset2" class="btn secondary">New PIN</button></div>
+        </div>
+        <div class="device">
+          <div class="lockbox">
+            <div class="brand">Secure Door 2000</div>
+            <div class="screen"><div class="subtle">Entered PIN</div><div id="display2" class="pin-display">_ _ _ _</div></div>
+            <div class="led-row">
+              <div class="led-wrap"><div id="led2red" class="led red"></div>Reject</div>
+              <div class="led-wrap"><div id="led2green" class="led green"></div>Accept</div>
+            </div>
+            <div id="keypad2" class="keypad"></div>
+          </div>
+          <div class="side">
+            <div class="card scope-box">
+              <div class="probe-label">Scope probe attached to LED line</div>
+              <canvas id="scope" width="560" height="220"></canvas>
+              <div class="guess-grid" style="margin-top:10px;">
+                <div>Last guess: <span id="lastGuess2" class="metric">----</span></div>
+                <div>Measured time: <span id="lastTime2" class="metric">0.00 ms</span></div>
+                <div>Recovered prefix: <span id="recovered2" class="metric">????</span></div>
+                <div>Attempts: <span id="attempts2" class="metric">0</span></div>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Why it is still vulnerable</h3>
+              <p>The UI waits for all 4 digits, but internally the PIN check still stops on the first wrong digit. The LED line changes after the internal work is finished, so the pulse width leaks how many leading digits were correct.</p>
+              <div id="log2" class="log"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card code-card code-span">
+          <h3>Example vulnerable C code</h3>
+          <pre class="code-block"><span class="comment">// Full-PIN entry, but still leaks because comparison exits early.</span>
+static const char stored_pin[4] = {'0', '7', '2', '3'};
+
+bool check_pin_timed(const char input[4])
+{
+    for (unsigned i = 0; i &lt; 4; i++) {
+        do_some_work();       <span class="comment">// Power/timing grows with correct prefix length</span>
+        if (input[i] != stored_pin[i]) {
+            return false;     <span class="comment">// Scope sees the operation end early</span>
+        }
+    }
+    return true;
+}
+
+<span class="comment">// Constant-time style fix:</span>
+bool check_pin_constant(const char input[4])
+{
+    unsigned diff = 0;
+    for (unsigned i = 0; i &lt; 4; i++) {
+        diff |= (unsigned)(input[i] ^ stored_pin[i]);
+    }
+    return diff == 0;
+}</pre>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const DIGITS = [...Array(10).keys()].map(String);
+    const PIN_LEN = 4;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const median = arr => { const s = [...arr].sort((a,b)=>a-b); const m = Math.floor(s.length/2); return s.length % 2 ? s[m] : (s[m-1]+s[m])/2; };
+    const randomPin = () => Array.from({length: PIN_LEN}, () => DIGITS[Math.floor(Math.random()*10)]).join('');
+    const withPlaceholders = pin => pin.padEnd(PIN_LEN, '_').split('').join(' ');
+    const clearLog = el => el.textContent = '';
+    const logAppend = (el, msg) => { el.textContent += msg + '\n'; el.scrollTop = el.scrollHeight; };
+    function pulseLed(redEl, greenEl, ok, ms=500) {
+      redEl.classList.remove('on'); greenEl.classList.remove('on');
+      (ok ? greenEl : redEl).classList.add('on');
+      setTimeout(() => { redEl.classList.remove('on'); greenEl.classList.remove('on'); }, ms);
+    }
+    function createKeypad(container, onPress) {
+      container.innerHTML = '';
+      const labels = ['1','2','3','4','5','6','7','8','9','C','0','⌫'];
+      for (const label of labels) {
+        const b = document.createElement('button');
+        b.className = 'key';
+        b.textContent = label;
+        b.addEventListener('click', () => onPress(label));
+        container.appendChild(b);
+      }
+    }
+    function drawScope(trace) {
+      const canvas = document.getElementById('scope');
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0,0,w,h);
+      ctx.fillStyle = '#020617'; ctx.fillRect(0,0,w,h);
+      ctx.strokeStyle = 'rgba(148,163,184,0.15)'; ctx.lineWidth = 1;
+      for (let i=0;i<=10;i++) { const y = 20 + i*((h-40)/10); ctx.beginPath(); ctx.moveTo(10,y); ctx.lineTo(w-10,y); ctx.stroke(); }
+      for (let i=0;i<=10;i++) { const x = 10 + i*((w-20)/10); ctx.beginPath(); ctx.moveTo(x,10); ctx.lineTo(x,h-10); ctx.stroke(); }
+      ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.beginPath();
+      for (let i=0;i<trace.length;i++) {
+        const x = 10 + (i/(trace.length-1))*(w-20);
+        const y = h - 20 - trace[i]*(h-50);
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = '12px ui-monospace, monospace';
+      ctx.fillText('Voltage', 16, 18);
+      ctx.fillText('Time →', w - 70, h - 16);
+    }
+    function makeTrace(durationMs, ok) {
+      const points = 180, trace = [];
+      const highStart = 0.12;
+      const highEnd = Math.min(0.92, highStart + durationMs / 95);
+      for (let i = 0; i < points; i++) {
+        const t = i / (points - 1);
+        let y = 0.1 + (Math.random() - 0.5) * 0.02;
+        if (t >= highStart && t <= highEnd) y = (ok ? 0.82 : 0.60) + (Math.random() - 0.5) * 0.03;
+        trace.push(y);
+      }
+      return trace;
+    }
+
+    class ImmediateRejectDemo {
+      constructor() {
+        this.secret = randomPin(); this.input = ''; this.attempts = 0;
+        this.displayEl = document.getElementById('display1'); this.secretEl = document.getElementById('secret1');
+        this.redEl = document.getElementById('led1red'); this.greenEl = document.getElementById('led1green'); this.logEl = document.getElementById('log1');
+        this.lastGuessEl = document.getElementById('lastGuess1'); this.lastStateEl = document.getElementById('lastState1'); this.prefixEl = document.getElementById('prefix1'); this.attemptsEl = document.getElementById('attempts1');
+        createKeypad(document.getElementById('keypad1'), key => this.onKey(key));
+        document.getElementById('reset1').addEventListener('click', () => this.reset());
+        this.refresh();
+      }
+      refresh() { this.secretEl.textContent = this.secret; this.displayEl.textContent = withPlaceholders(this.input); this.lastGuessEl.textContent = this.input || '----'; this.prefixEl.textContent = String(this.input.length); this.attemptsEl.textContent = String(this.attempts); }
+      reset() { this.secret = randomPin(); this.input = ''; this.attempts = 0; this.lastStateEl.textContent = 'Idle'; clearLog(this.logEl); this.refresh(); }
+      onKey(key) {
+        if (key === 'C') { this.input = ''; this.lastStateEl.textContent = 'Cleared'; this.refresh(); return; }
+        if (key === '⌫') { this.input = this.input.slice(0, -1); this.lastStateEl.textContent = 'Backspace'; this.refresh(); return; }
+        if (this.input.length >= PIN_LEN) return;
+        this.attempts += 1;
+        const pos = this.input.length;
+        const next = this.input + key;
+        if (key !== this.secret[pos]) {
+          this.input = next;
+          this.lastStateEl.textContent = `Wrong at digit ${pos + 1}`;
+          this.refresh();
+          logAppend(this.logEl, `${next.padEnd(PIN_LEN, '-')} -> reject immediately (digit ${pos + 1} wrong)`);
+          pulseLed(this.redEl, this.greenEl, false, 650);
+          setTimeout(() => { this.input = ''; this.refresh(); }, 500);
+          return;
+        }
+        this.input = next;
+        if (this.input.length === PIN_LEN) {
+          this.lastStateEl.textContent = 'Accepted';
+          this.refresh();
+          logAppend(this.logEl, `${this.input} -> accept`);
+          pulseLed(this.redEl, this.greenEl, true, 700);
+          setTimeout(() => { this.input = ''; this.refresh(); }, 650);
+        } else {
+          this.lastStateEl.textContent = `Digit ${pos + 1} correct`;
+          this.refresh();
+          logAppend(this.logEl, `${this.input.padEnd(PIN_LEN, '-')} -> prefix still valid`);
+        }
+      }
+    }
+
+    class TimedFullEntryDemo {
+      constructor() {
+        this.secret = randomPin(); this.input = ''; this.attempts = 0; this.running = false;
+        this.displayEl = document.getElementById('display2'); this.secretEl = document.getElementById('secret2');
+        this.redEl = document.getElementById('led2red'); this.greenEl = document.getElementById('led2green'); this.logEl = document.getElementById('log2');
+        this.lastGuessEl = document.getElementById('lastGuess2'); this.lastTimeEl = document.getElementById('lastTime2'); this.recoveredEl = document.getElementById('recovered2'); this.attemptsEl = document.getElementById('attempts2');
+        createKeypad(document.getElementById('keypad2'), key => this.onKey(key));
+        document.getElementById('autoAttack2').addEventListener('click', () => this.autoAttack());
+        document.getElementById('reset2').addEventListener('click', () => this.reset());
+        drawScope(makeTrace(10, false));
+        this.refresh();
+      }
+      refresh() { this.secretEl.textContent = this.secret; this.displayEl.textContent = withPlaceholders(this.input); this.attemptsEl.textContent = String(this.attempts); }
+      reset() { this.secret = randomPin(); this.input = ''; this.attempts = 0; clearLog(this.logEl); this.lastGuessEl.textContent = '----'; this.lastTimeEl.textContent = '0.00 ms'; this.recoveredEl.textContent = '????'; drawScope(makeTrace(10, false)); this.refresh(); }
+      async onKey(key) {
+        if (this.running) return;
+        if (key === 'C') { this.input = ''; this.refresh(); return; }
+        if (key === '⌫') { this.input = this.input.slice(0,-1); this.refresh(); return; }
+        if (this.input.length >= PIN_LEN) return;
+        this.input += key; this.refresh();
+        if (this.input.length === PIN_LEN) {
+          const guess = this.input;
+          const result = await this.measureGuess(guess);
+          pulseLed(this.redEl, this.greenEl, result.ok, 650);
+          setTimeout(() => { this.input = ''; this.refresh(); }, 500);
+        }
+      }
+      async earlyReturnCheck(pin) {
+        const base = 12;
+        for (let i = 0; i < PIN_LEN; i++) {
+          await sleep(base + Math.random() * 2);
+          if (pin[i] !== this.secret[i]) return false;
+        }
+        await sleep(8);
+        return true;
+      }
+      async measureGuess(pin) {
+        this.attempts += 1;
+        const t0 = performance.now();
+        const ok = await this.earlyReturnCheck(pin);
+        const t1 = performance.now();
+        const dt = t1 - t0;
+        this.lastGuessEl.textContent = pin;
+        this.lastTimeEl.textContent = dt.toFixed(2) + ' ms';
+        this.attemptsEl.textContent = String(this.attempts);
+        drawScope(makeTrace(dt, ok));
+        logAppend(this.logEl, `${pin} -> ${dt.toFixed(2)} ms ${ok ? '[OPEN]' : ''}`);
+        return { ok, dt };
+      }
+      async sampleGuess(pin, reps = 4) {
+        const times = [];
+        for (let i = 0; i < reps; i++) { const res = await this.measureGuess(pin); times.push(res.dt); await sleep(10); }
+        return median(times);
+      }
+      async autoAttack() {
+        if (this.running) return;
+        this.running = true;
+        const btn = document.getElementById('autoAttack2');
+        btn.disabled = true;
+        clearLog(this.logEl);
+        logAppend(this.logEl, 'Starting scope-assisted timing attack...');
+        let known = '';
+        for (let pos = 0; pos < PIN_LEN; pos++) {
+          let bestDigit = '0', bestTime = -Infinity;
+          for (const d of DIGITS) {
+            const guess = (known + d).padEnd(PIN_LEN, '0');
+            const t = await this.sampleGuess(guess, 4);
+            if (t > bestTime) { bestTime = t; bestDigit = d; }
+          }
+          known += bestDigit;
+          this.recoveredEl.textContent = known.padEnd(PIN_LEN, '?');
+          logAppend(this.logEl, `Selected digit ${pos + 1}: ${bestDigit} (slowest median ${bestTime.toFixed(2)} ms)`);
+        }
+        const finalRes = await this.measureGuess(known);
+        pulseLed(this.redEl, this.greenEl, finalRes.ok, 700);
+        logAppend(this.logEl, finalRes.ok ? `Recovered PIN: ${known}` : `Final guess ${known} failed due to noise.`);
+        this.running = false;
+        btn.disabled = false;
+      }
+    }
+
+    new ImmediateRejectDemo();
+    new TimedFullEntryDemo();
+  </script>
+</body>
+</html>

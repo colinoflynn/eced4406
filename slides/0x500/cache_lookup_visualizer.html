@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Simple Cache Lookup Visualizer</title>
+<style>
+  :root{
+    --bg:#0b1020;
+    --panel:#121a2b;
+    --text:#e8eefc;
+    --muted:#9fb0d1;
+    --border:#2d3a58;
+    --accent:#73b7ff;
+    --accent2:#72e0a6;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background:linear-gradient(180deg,#09101d,#10192c);
+    color:var(--text);
+  }
+  header{
+    padding:18px 22px 12px;
+    border-bottom:1px solid var(--border);
+    background:rgba(9,16,29,.92);
+    position:sticky; top:0; z-index:10;
+  }
+  h1{margin:0 0 6px;font-size:1.4rem}
+  header p{margin:0;color:var(--muted);max-width:1100px;line-height:1.35}
+  .page{padding:16px}
+  .layout{
+    display:grid;
+    grid-template-columns:330px 1fr;
+    gap:16px;
+    align-items:start;
+  }
+  .panel{
+    background:rgba(18,26,43,.96);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:14px;
+  }
+  h2{margin:0 0 10px;font-size:1rem}
+  .sub{color:var(--muted);font-size:.92rem;line-height:1.4}
+  .control-group{
+    margin:0 0 12px;
+    padding:0 0 12px;
+    border-bottom:1px dashed var(--border);
+  }
+  .control-group:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none}
+  .row{
+    display:grid;
+    grid-template-columns:1fr auto;
+    gap:8px;
+    align-items:center;
+    margin:8px 0 5px;
+  }
+  .value{color:var(--accent2); font-variant-numeric: tabular-nums}
+  input[type=range]{width:100%}
+  button, select{
+    background:#0d1423;
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:9px;
+    padding:8px 10px;
+    font:inherit;
+  }
+  button{cursor:pointer;font-weight:650}
+  .button-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .steps{display:grid;gap:10px;margin-top:10px}
+  .stepbox{
+    background:#0a1120;
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:10px;
+  }
+  .stepbox strong{display:block;margin-bottom:5px}
+  .viz-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+  }
+  canvas{
+    width:100%;
+    height:320px;
+    display:block;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:#09101b;
+  }
+  .canvas-title{margin:6px 0 6px;font-weight:700;color:#d2def9}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:.9rem;margin-top:6px}
+  .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+  .history{
+    margin-top:10px;
+    background:#0a1120;
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:10px;
+    max-height:210px;
+    overflow:auto;
+    font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size:.9rem;
+    line-height:1.5;
+    color:var(--muted);
+  }
+  .history div{padding:2px 0}
+  @media (max-width: 1000px){
+    .layout{grid-template-columns:1fr}
+    .viz-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Simple Cache Lookup Visualizer</h1>
+  <p>A small teaching demo showing, step-by-step, how an input selects an array entry and how that entry maps to a cache line.</p>
+</header>
+
+<div class="page">
+  <div class="layout">
+    <aside class="panel">
+      <h2>Controls</h2>
+
+      <div class="control-group">
+        <div class="row"><label>Lookup mode</label>
+          <select id="mode">
+            <option value="direct">Direct: index = input</option>
+            <option value="xor">Secret-mixed: index = input XOR secret</option>
+          </select>
+        </div>
+        <div class="sub">
+          Start with direct mode to show basic indexing, then switch to secret-mixed mode to show how a secret changes the accessed entry and cache line.
+        </div>
+      </div>
+
+      <div class="control-group">
+        <div class="row"><label>Public input</label><span class="value" id="inputVal"></span></div>
+        <input id="inputSlider" type="range" min="0" max="15" value="5" step="1">
+
+        <div class="row"><label>Secret value</label><span class="value" id="secretVal"></span></div>
+        <input id="secretSlider" type="range" min="0" max="15" value="6" step="1">
+
+        <div class="row"><label>Entries per cache line</label><span class="value" id="lineVal"></span></div>
+        <input id="lineSlider" type="range" min="2" max="8" value="4" step="1">
+      </div>
+
+      <div class="control-group">
+        <div class="button-row">
+          <button id="stepBtn">Single step</button>
+          <button id="randomBtn">Random input</button>
+          <button id="clearBtn">Clear history</button>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="stepbox"><strong>Step 1: Choose an input</strong>The public input is the value sent to the victim.</div>
+        <div class="stepbox"><strong>Step 2: Compute array index</strong>In direct mode, the input is used directly. In secret-mixed mode, the secret changes the index.</div>
+        <div class="stepbox"><strong>Step 3: Access array entry</strong>The lookup reads one array element, like <span class="mono">table[index]</span>.</div>
+        <div class="stepbox"><strong>Step 4: Touch a cache line</strong>Several adjacent entries share one cache line, so accessing one entry tends to make that whole line hot.</div>
+      </div>
+
+      <h2 style="margin-top:14px">Current lookup</h2>
+      <div class="stepbox mono" id="equationBox"></div>
+
+      <h2 style="margin-top:14px">History</h2>
+      <div class="history" id="historyBox"></div>
+    </aside>
+
+    <main class="panel">
+      <h2>Visualization</h2>
+
+      <div class="viz-grid">
+        <div>
+          <div class="canvas-title">Lookup flow</div>
+          <canvas id="flowCanvas" width="700" height="320"></canvas>
+        </div>
+        <div>
+          <div class="canvas-title">Array and cache lines</div>
+          <canvas id="cacheCanvas" width="700" height="320"></canvas>
+          <div class="legend">
+            <span><span class="sw" style="background:#20304d"></span>normal entry</span>
+            <span><span class="sw" style="background:#73b7ff"></span>selected entry</span>
+            <span><span class="sw" style="background:#72e0a6"></span>touched cache line</span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const state = { history: [], current: null };
+
+  const colors = {
+    bg: "#09101b",
+    text: "#e8eefc",
+    muted: "#9fb0d1",
+    border: "#2d3a58",
+    normal: "#20304d",
+    selected: "#73b7ff",
+    line: "#72e0a6"
+  };
+
+  function updateLabels() {
+    $("inputVal").textContent = "0x" + Number($("inputSlider").value).toString(16).toUpperCase();
+    $("secretVal").textContent = "0x" + Number($("secretSlider").value).toString(16).toUpperCase();
+    $("lineVal").textContent = $("lineSlider").value;
+  }
+
+  function computeLookup() {
+    const input = parseInt($("inputSlider").value, 10);
+    const secret = parseInt($("secretSlider").value, 10);
+    const lineSize = parseInt($("lineSlider").value, 10);
+    const mode = $("mode").value;
+    const index = mode === "direct" ? input : ((input ^ secret) & 0xF);
+    const line = Math.floor(index / lineSize);
+    state.current = { input, secret, index, line, lineSize, mode };
+    updateEquation();
+    renderAll();
+  }
+
+  function updateEquation() {
+    const c = state.current;
+    const lines = c.mode === "direct"
+      ? [
+          `input = 0x${c.input.toString(16).toUpperCase()}`,
+          `index = input = 0x${c.index.toString(16).toUpperCase()}`,
+          `access = table[${c.index}]`,
+          `cache line = floor(${c.index} / ${c.lineSize}) = ${c.line}`
+        ]
+      : [
+          `input = 0x${c.input.toString(16).toUpperCase()}, secret = 0x${c.secret.toString(16).toUpperCase()}`,
+          `index = input XOR secret = 0x${c.input.toString(16).toUpperCase()} XOR 0x${c.secret.toString(16).toUpperCase()} = 0x${c.index.toString(16).toUpperCase()}`,
+          `access = table[${c.index}]`,
+          `cache line = floor(${c.index} / ${c.lineSize}) = ${c.line}`
+        ];
+    $("equationBox").innerHTML = lines.join("<br>");
+  }
+
+  function pushHistory() {
+    const c = state.current;
+    const mode = c.mode === "direct" ? "direct" : "xor";
+    state.history.unshift(`${mode}: input=0x${c.input.toString(16).toUpperCase()} secret=0x${c.secret.toString(16).toUpperCase()} index=0x${c.index.toString(16).toUpperCase()} line=${c.line}`);
+    state.history = state.history.slice(0, 18);
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const box = $("historyBox");
+    if (!state.history.length) {
+      box.innerHTML = "<div>— no lookups yet —</div>";
+      return;
+    }
+    box.innerHTML = state.history.map(v => `<div>${v}</div>`).join("");
+  }
+
+  function clearCanvas(cv) {
+    const ctx = cv.getContext("2d");
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = colors.bg;
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    return ctx;
+  }
+
+  function drawBox(ctx, x, y, w, h, label, fill, stroke=colors.border) {
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 10);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = colors.text;
+    ctx.font = "13px sans-serif";
+    label.split("\n").forEach((line, i) => ctx.fillText(line, x + 10, y + 18 + i * 16));
+  }
+
+  function drawArrow(ctx, x1, y1, x2, y2, label="") {
+    ctx.strokeStyle = colors.muted;
+    ctx.fillStyle = colors.muted;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    const ang = Math.atan2(y2 - y1, x2 - x1);
+    const ah = 8;
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - ah * Math.cos(ang - Math.PI / 6), y2 - ah * Math.sin(ang - Math.PI / 6));
+    ctx.lineTo(x2 - ah * Math.cos(ang + Math.PI / 6), y2 - ah * Math.sin(ang + Math.PI / 6));
+    ctx.closePath();
+    ctx.fill();
+    if (label) {
+      ctx.font = "12px sans-serif";
+      ctx.fillText(label, (x1 + x2) / 2 - 18, (y1 + y2) / 2 - 8);
+    }
+  }
+
+  function drawFlow() {
+    const cv = $("flowCanvas");
+    const ctx = clearCanvas(cv);
+    const c = state.current;
+
+    drawBox(ctx, 20, 30, 120, 60, `public input\n0x${c.input.toString(16).toUpperCase()}`, "#0d1423");
+
+    if (c.mode === "xor") {
+      drawBox(ctx, 170, 30, 120, 60, `secret\n0x${c.secret.toString(16).toUpperCase()}`, "#0d1423");
+      drawBox(ctx, 320, 30, 150, 60, `compute index\n0x${c.input.toString(16).toUpperCase()} XOR 0x${c.secret.toString(16).toUpperCase()}\n= 0x${c.index.toString(16).toUpperCase()}`, "#12253a", colors.selected);
+      drawArrow(ctx, 140, 60, 170, 60);
+      drawArrow(ctx, 290, 60, 320, 60);
+      drawArrow(ctx, 470, 60, 520, 60);
+    } else {
+      drawBox(ctx, 220, 30, 150, 60, `compute index\nindex = input\n= 0x${c.index.toString(16).toUpperCase()}`, "#12253a", colors.selected);
+      drawArrow(ctx, 140, 60, 220, 60);
+      drawArrow(ctx, 370, 60, 520, 60);
+    }
+
+    drawBox(ctx, 520, 30, 150, 60, `array access\ntable[${c.index}]`, "#12253a", colors.selected);
+    drawBox(ctx, 240, 160, 190, 70, `cache line touched\nline = floor(${c.index}/${c.lineSize}) = ${c.line}`, "#123126", colors.line);
+    drawArrow(ctx, 595, 90, 430, 160, "maps to");
+
+    ctx.fillStyle = colors.muted;
+    ctx.font = "13px sans-serif";
+    ctx.fillText("Nearby entries share a cache line, so one lookup can reveal which region of the array was touched.", 20, 285);
+  }
+
+  function drawArrayCache() {
+    const cv = $("cacheCanvas");
+    const ctx = clearCanvas(cv);
+    const c = state.current;
+    const cols = 4, rows = 4;
+    const cellW = 120, cellH = 48;
+    const startX = 40, startY = 30;
+    const gapX = 18, gapY = 18;
+
+    ctx.fillStyle = colors.text;
+    ctx.font = "13px sans-serif";
+    ctx.fillText("Green outline = same cache line. Blue entry = selected lookup.", startX, 18);
+
+    for (let idx = 0; idx < 16; idx++) {
+      const row = Math.floor(idx / cols);
+      const col = idx % cols;
+      const x = startX + col * (cellW + gapX);
+      const y = startY + row * (cellH + gapY);
+      const line = Math.floor(idx / c.lineSize);
+      const isSelected = idx === c.index;
+      const isLine = line === c.line;
+
+      ctx.fillStyle = isSelected ? colors.selected : colors.normal;
+      ctx.strokeStyle = colors.border;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.roundRect(x, y, cellW, cellH, 9);
+      ctx.fill();
+      ctx.stroke();
+
+      if (isLine) {
+        ctx.strokeStyle = colors.line;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x - 3, y - 3, cellW + 6, cellH + 6);
+      }
+
+      ctx.fillStyle = colors.text;
+      ctx.font = "12px sans-serif";
+      ctx.fillText(`table[${idx}]`, x + 10, y + 18);
+      ctx.fillText(`line ${line}`, x + 10, y + 36);
+    }
+  }
+
+  function renderAll() {
+    drawFlow();
+    drawArrayCache();
+  }
+
+  function singleStep() {
+    computeLookup();
+    pushHistory();
+  }
+
+  function randomInput() {
+    $("inputSlider").value = Math.floor(Math.random() * 16);
+    updateLabels();
+    computeLookup();
+    pushHistory();
+  }
+
+  function clearHistory() {
+    state.history = [];
+    renderHistory();
+  }
+
+  ["inputSlider", "secretSlider", "lineSlider"].forEach(id => {
+    $(id).addEventListener("input", () => {
+      updateLabels();
+      computeLookup();
+    });
+  });
+  $("mode").addEventListener("change", computeLookup);
+  $("stepBtn").addEventListener("click", singleStep);
+  $("randomBtn").addEventListener("click", randomInput);
+  $("clearBtn").addEventListener("click", clearHistory);
+
+  updateLabels();
+  computeLookup();
+  renderHistory();
+})();
+</script>
+</body>
+</html>

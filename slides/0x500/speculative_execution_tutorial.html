@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Speculative Execution Interactive Tutorial</title>
+<style>
+  :root{
+    --bg:#0b1020;
+    --panel:#121933;
+    --panel2:#182246;
+    --text:#e9eefb;
+    --muted:#a9b6d3;
+    --accent:#7cc7ff;
+    --good:#7ee787;
+    --warn:#ffcc66;
+    --bad:#ff8b8b;
+    --border:#2a3768;
+    --shadow: 0 10px 30px rgba(0,0,0,.25);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;
+    background:linear-gradient(180deg,#0a0f1d,#111a34);
+    color:var(--text);
+  }
+  .wrap{
+    max-width:1200px;
+    margin:0 auto;
+    padding:24px;
+  }
+  h1,h2,h3{margin:.2em 0 .5em}
+  p{line-height:1.45}
+  .lead{color:var(--muted); max-width:920px}
+  .grid{
+    display:grid;
+    grid-template-columns: 360px 1fr;
+    gap:18px;
+    align-items:start;
+  }
+  .card{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--border);
+    border-radius:16px;
+    box-shadow:var(--shadow);
+    padding:16px;
+  }
+  .controls label{
+    display:block;
+    margin:10px 0 6px;
+    color:var(--muted);
+    font-size:14px;
+  }
+  input[type=range]{width:100%}
+  .row{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  button{
+    background:#1c2a55;
+    color:var(--text);
+    border:1px solid #35509f;
+    border-radius:10px;
+    padding:10px 14px;
+    cursor:pointer;
+    font-weight:600;
+  }
+  button:hover{filter:brightness(1.08)}
+  button.secondary{
+    background:#18203f;
+    border-color:#30406f;
+  }
+  button:disabled{
+    opacity:.55;
+    cursor:not-allowed;
+  }
+  .badge{
+    display:inline-block;
+    padding:4px 8px;
+    border:1px solid var(--border);
+    border-radius:999px;
+    color:var(--muted);
+    font-size:12px;
+    margin-right:6px;
+  }
+  .stat{
+    background:rgba(255,255,255,.03);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:10px 12px;
+    flex:1;
+    min-width:140px;
+  }
+  .stat .k{
+    color:var(--muted);
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+  }
+  .stat .v{
+    font-size:20px;
+    font-weight:700;
+    margin-top:4px;
+  }
+  .diagram{
+    min-height:600px;
+  }
+  .explain{
+    background:rgba(255,255,255,.03);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:12px;
+    margin-top:12px;
+    color:#d8e2ff;
+  }
+  .code{
+    background:#0a1022;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:12px;
+    overflow:auto;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:13px;
+    white-space:pre;
+    color:#dfe8ff;
+  }
+  .tabs{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:12px;
+  }
+  .tab{
+    padding:8px 12px;
+    border-radius:999px;
+    border:1px solid var(--border);
+    background:#17224a;
+    color:var(--text);
+    cursor:pointer;
+  }
+  .tab.active{
+    background:#24407d;
+    border-color:#6aaeff;
+  }
+  .small{font-size:13px;color:var(--muted)}
+  svg text{
+    font-family:inherit;
+    fill:var(--text);
+  }
+  .legend{
+    display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;
+  }
+  .dot{width:12px;height:12px;border-radius:50%;display:inline-block;vertical-align:middle;margin-right:6px}
+  .footer-note{margin-top:16px;color:var(--muted);font-size:13px}
+  .center{display:flex;align-items:center;justify-content:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Interactive Tutorial: Speculative Execution and Cache-Based Leakage</h1>
+  <p class="lead">
+    This is a toy teaching model of how a CPU can transiently execute a mispredicted path, touch data-dependent cache lines, and leave behind a timing signal.
+    It is designed for classroom explanation, not for attacking real systems.
+  </p>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="mapping">Lookup mapping</button>
+    <button class="tab" data-tab="tutorial">Step-by-step tutorial</button>
+    <button class="tab" data-tab="probe">Timing probe demo</button>
+    <button class="tab" data-tab="summary">Big picture</button>
+  </div>
+
+  <div id="mappingTab" class="tabPage">
+    <div class="grid">
+      <div class="card controls">
+        <h2>array1 → array2 mapping</h2>
+        <p class="small">
+          This tab focuses only on the lookup
+          <code>y = array2[array1[x] * 256]</code>.
+          The goal is to show how a byte loaded from <code>array1</code> selects one widely separated region of <code>array2</code>.
+        </p>
+
+        <label>Choose x into array1: <span id="mapXOut"></span></label>
+        <input id="mapX" type="range" min="0" max="31" step="1" value="7"/>
+
+        <div class="explain">
+          In this version, the spacing is fixed at <code>128</code> bytes and the number of highlighted candidate targets is fixed at <code>16</code>.
+          This makes it easier to see the standard teaching pattern where one of 16 possible values selects one of 16 widely separated regions.
+        </div>
+
+        <div class="row" style="margin-top:12px">
+          <button id="mapRandomize">Randomize array1 contents</button>
+        </div>
+
+        <div class="explain" id="mapExplain">
+          Pick an index <code>x</code>. The byte <code>array1[x]</code> becomes the selector. Multiplying by 128 spaces the candidate array2 accesses far apart so each value tends to land in a different cache line or cache-line group.
+        </div>
+
+        <h3 style="margin-top:16px">Code fragment</h3>
+        <div class="code">uint8_t value = array1[x];
+y = array2[value * 256];</div>
+      </div>
+
+      <div class="card diagram">
+        <div class="row">
+          <div class="stat"><div class="k">Selected x</div><div class="v" id="mapXStat">7</div></div>
+          <div class="stat"><div class="k">array1[x]</div><div class="v" id="mapValStat">-</div></div>
+          <div class="stat"><div class="k">array2 offset</div><div class="v" id="mapOffsetStat">-</div></div>
+        </div>
+
+        <svg id="mappingSvg" width="100%" viewBox="0 0 820 620" aria-label="array mapping diagram"></svg>
+
+        <div class="legend">
+          <span><span class="dot" style="background:#7ee787"></span>array1 cell</span>
+          <span><span class="dot" style="background:#7cc7ff"></span>Selected array1[x]</span>
+          <span><span class="dot" style="background:#ffcc66"></span>Chosen array2 target</span>
+          <span><span class="dot" style="background:#ff8b8b"></span>Other possible targets</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tutorialTab" class="tabPage" style="display:none">
+    <div class="grid">
+      <div class="card controls">
+        <h2>Scenario setup</h2>
+        <label>Bounds-safe length for public array: <span id="safeLenOut"></span></label>
+        <input id="safeLen" type="range" min="8" max="32" step="1" value="16"/>
+
+        <label>Attacker-controlled index x: <span id="xOut"></span></label>
+        <input id="xVal" type="range" min="0" max="63" step="1" value="22"/>
+
+        <label>Secret byte located just past the safe array: <span id="secretOut"></span></label>
+        <input id="secretVal" type="range" min="0" max="15" step="1" value="9"/>
+
+        <label>Branch predictor confidence (trained to expect in-bounds): <span id="predOut"></span>%</label>
+        <input id="predVal" type="range" min="50" max="100" step="1" value="92"/>
+
+        <div class="row" style="margin-top:12px">
+          <button id="trainBtn">1. Train predictor</button>
+          <button id="runBtn">2. Run victim lookup</button>
+          <button id="probeBtn">3. Probe cache</button>
+          <button id="resetBtn" class="secondary">Reset</button>
+        </div>
+
+        <div class="explain" id="stepText">
+          Press <b>Train predictor</b> to start. The victim repeatedly accesses valid indices, so the predictor learns that the bounds check usually passes.
+        </div>
+
+        <h3 style="margin-top:16px">Toy victim code</h3>
+        <div class="code">if (x &lt; safe_len) {
+    value = array1[x];
+    temp  = array2[value * 16];
+}</div>
+
+        <div class="footer-note">
+          In this toy model, <code>array2[value * 16]</code> maps each possible value to its own cache line so that a later timing probe can reveal which line became fast.
+        </div>
+      </div>
+
+      <div class="card diagram">
+        <div class="row">
+          <div class="stat"><div class="k">Pipeline state</div><div class="v" id="pipeState">Idle</div></div>
+          <div class="stat"><div class="k">Bounds check</div><div class="v" id="boundsState">Unknown</div></div>
+          <div class="stat"><div class="k">Secret leaked as cache line</div><div class="v" id="leakState">None</div></div>
+        </div>
+
+        <svg id="scene" width="100%" viewBox="0 0 820 620" aria-label="speculative execution diagram">
+          <defs>
+            <filter id="glow">
+              <feGaussianBlur stdDeviation="4" result="c"/>
+              <feMerge>
+                <feMergeNode in="c"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
+
+          <!-- CPU block -->
+          <rect x="24" y="30" rx="14" ry="14" width="220" height="145" fill="#182246" stroke="#5a7bd1"/>
+          <text x="42" y="58" font-size="22" font-weight="700">CPU</text>
+          <text x="42" y="88" font-size="15">Branch predictor</text>
+          <rect id="predBarBg" x="42" y="100" width="160" height="16" rx="8" fill="#0f1530" stroke="#35509f"/>
+          <rect id="predBar" x="42" y="100" width="120" height="16" rx="8" fill="#7cc7ff"/>
+          <text x="42" y="140" font-size="15">Transient execution window</text>
+          <rect id="transientWin" x="42" y="150" width="120" height="12" rx="6" fill="#ffcc66"/>
+
+          <!-- Code path -->
+          <rect x="280" y="30" rx="14" ry="14" width="510" height="145" fill="#182246" stroke="#5a7bd1"/>
+          <text x="300" y="58" font-size="22" font-weight="700">Victim lookup</text>
+          <rect id="checkBox" x="300" y="85" rx="10" ry="10" width="130" height="50" fill="#111936" stroke="#6e84c6"/>
+          <text x="318" y="116" font-size="18">x &lt; safe_len ?</text>
+
+          <rect id="load1Box" x="470" y="85" rx="10" ry="10" width="120" height="50" fill="#111936" stroke="#6e84c6"/>
+          <text x="494" y="116" font-size="18">array1[x]</text>
+
+          <rect id="load2Box" x="630" y="85" rx="10" ry="10" width="135" height="50" fill="#111936" stroke="#6e84c6"/>
+          <text x="645" y="106" font-size="16">array2[value * 16]</text>
+          <text x="667" y="125" font-size="13">(cache-line touch)</text>
+
+          <line id="arrow1" x1="430" y1="110" x2="470" y2="110" stroke="#7cc7ff" stroke-width="4" marker-end="url(#m)"/>
+          <line id="arrow2" x1="590" y1="110" x2="630" y2="110" stroke="#7cc7ff" stroke-width="4" marker-end="url(#m)"/>
+
+          <!-- Arrays -->
+          <rect x="24" y="215" rx="14" ry="14" width="360" height="185" fill="#182246" stroke="#5a7bd1"/>
+          <text x="42" y="242" font-size="22" font-weight="700">array1 + adjacent secret</text>
+          <text x="42" y="266" font-size="14" fill="#a9b6d3">Green cells are in-bounds. Red is secret just beyond bounds.</text>
+          <g id="array1Cells"></g>
+
+          <!-- Cache -->
+          <rect x="420" y="215" rx="14" ry="14" width="370" height="185" fill="#182246" stroke="#5a7bd1"/>
+          <text x="438" y="242" font-size="22" font-weight="700">array2 cache lines</text>
+          <text x="438" y="266" font-size="14" fill="#a9b6d3">Exactly one line becomes fast after the transient access.</text>
+          <g id="cacheCells"></g>
+
+          <!-- Probe -->
+          <rect x="24" y="435" rx="14" ry="14" width="766" height="155" fill="#182246" stroke="#5a7bd1"/>
+          <text x="42" y="462" font-size="22" font-weight="700">Attacker observation</text>
+          <text x="42" y="488" font-size="15">Probe every candidate cache line and measure timing.</text>
+          <g id="probeBars"></g>
+
+          <defs>
+            <marker id="m" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#7cc7ff"></path>
+            </marker>
+          </defs>
+        </svg>
+
+        <div class="legend">
+          <span><span class="dot" style="background:#7ee787"></span>Safe / in-bounds</span>
+          <span><span class="dot" style="background:#ff8b8b"></span>Out-of-bounds secret</span>
+          <span><span class="dot" style="background:#7cc7ff"></span>Speculative / selected</span>
+          <span><span class="dot" style="background:#ffcc66"></span>Cache hit during probe</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="probeTab" class="tabPage" style="display:none">
+    <div class="grid">
+      <div class="card controls">
+        <h2>Timing probe demo</h2>
+        <p class="small">
+          Here you can directly simulate the final stage: probing candidate cache lines and reading the one that responds quickly.
+        </p>
+        <label>Which cache line was touched transiently? <span id="probeTouchedOut"></span></label>
+        <input id="probeTouched" type="range" min="0" max="15" step="1" value="9" />
+        <label>Noise level <span id="noiseOut"></span></label>
+        <input id="noiseVal" type="range" min="0" max="50" step="1" value="12" />
+        <div class="row" style="margin-top:12px">
+          <button id="runProbeOnly">Generate timing measurements</button>
+        </div>
+        <div class="explain">
+          The lowest-latency line is the likely leaked value. In practice, repeated trials are often averaged because timing measurements are noisy.
+        </div>
+      </div>
+      <div class="card">
+        <div class="row">
+          <div class="stat"><div class="k">Fastest line</div><div class="v" id="fastestLine">-</div></div>
+          <div class="stat"><div class="k">Interpretation</div><div class="v" id="fastestText">No data yet</div></div>
+        </div>
+        <svg id="probeOnlySvg" width="100%" viewBox="0 0 820 520"></svg>
+      </div>
+    </div>
+  </div>
+
+  <div id="summaryTab" class="tabPage" style="display:none">
+    <div class="card">
+      <h2>What this tutorial is showing</h2>
+      <p>
+        The key idea is that the architectural result of the mispredicted path is thrown away, but <b>microarchitectural side effects</b> can remain.
+        A cache line loaded during transient execution may still be present afterward, and that presence can be detected by timing.
+      </p>
+      <div class="row">
+        <div class="stat"><div class="k">Architectural state</div><div class="v">Rolled back</div></div>
+        <div class="stat"><div class="k">Microarchitectural state</div><div class="v">May persist</div></div>
+        <div class="stat"><div class="k">Observable channel</div><div class="v">Timing</div></div>
+      </div>
+      <h3 style="margin-top:18px">Classroom framing</h3>
+      <p>
+        A useful way to explain this is: the CPU <i>guesses</i>, touches memory before it knows whether that work was legitimate, and then later says
+        “never mind” architecturally — but the cache was still changed. That cache change becomes the signal.
+      </p>
+      <h3>Important caveats</h3>
+      <p>
+        Real processors are much more complex than this toy visualization. Real attacks depend on the exact microarchitecture, timer availability,
+        mitigation state, and many other details. This page intentionally stays abstract and focuses on the learning model.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+const state = {
+  trained: false,
+  ran: false,
+  probed: false,
+  leakedLine: null,
+  speculativeTaken: false,
+  timings: [],
+};
+
+const $ = sel => document.querySelector(sel);
+
+const mappingData = Array.from({length: 32}, (_, i) => (i * 7 + 3) & 15);
+
+function randn() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function updateLabels(){
+  $("#safeLenOut").textContent = $("#safeLen").value;
+  $("#xOut").textContent = $("#xVal").value;
+  $("#secretOut").textContent = $("#secretVal").value;
+  $("#predOut").textContent = $("#predVal").value;
+  $("#probeTouchedOut").textContent = $("#probeTouched").value;
+  $("#noiseOut").textContent = $("#noiseVal").value;
+  $("#predBar").setAttribute("width", 1.6 * Number($("#predVal").value));
+  $("#transientWin").setAttribute("width", 40 + 1.2 * Number($("#predVal").value));
+  drawArray1();
+  drawCache();
+  if (!state.probed) drawProbeBars(new Array(16).fill(null));
+}
+
+function updateMapLabels(){
+  if ($("#mapXOut")) $("#mapXOut").textContent = $("#mapX").value;
+  drawMappingTab();
+}
+
+function drawMappingTab(){
+  const svg = $("#mappingSvg");
+  if (!svg) return;
+  svg.innerHTML = "";
+
+  const x = Number($("#mapX").value);
+  const scale = 128;
+  const count = 16;
+  const value = mappingData[x] % count;
+  const offset = value * scale;
+  const fullArrayBytes = count * scale;
+
+  $("#mapXStat").textContent = x;
+  $("#mapValStat").textContent = value;
+  $("#mapOffsetStat").textContent = offset;
+
+  const NS = "http://www.w3.org/2000/svg";
+  function add(tag, attrs={}, text=null){
+    const el = document.createElementNS(NS, tag);
+    for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v);
+    if (text != null) el.textContent = text;
+    svg.appendChild(el);
+    return el;
+  }
+
+  add("text", {x:24, y:30, "font-size":24, "font-weight":"700"}, "How array1[x] selects a region inside array2");
+  add("text", {x:24, y:55, "font-size":15}, "The byte from array1[x] chooses one of 16 candidate regions in a larger array2 layout.");
+
+  add("rect", {x:24, y:85, width:770, height:140, rx:14, fill:"#182246", stroke:"#5a7bd1"});
+  add("text", {x:42, y:115, "font-size":22, "font-weight":"700"}, "array1");
+  add("text", {x:42, y:138, "font-size":14}, "Large memory array indexed by x");
+
+  const startX = 42, startY = 160, cellW = 20, cellH = 36, gap = 4;
+  for (let i = 0; i < 32; i++){
+    const cx = startX + i * (cellW + gap);
+    add("rect", {
+      x: cx, y: startY, width: cellW, height: cellH, rx: 4,
+      fill: i === x ? "#2c5d96" : "#1a4730",
+      stroke: i === x ? "#9bd3ff" : "#6e84c6",
+      "stroke-width": i === x ? 2.5 : 1.2
+    });
+    add("text", {x: cx+4, y: startY-6, "font-size":10}, String(i));
+    add("text", {x: cx+6, y: startY+23, "font-size":12, "font-weight":"700"}, String(mappingData[i] % count));
+  }
+  add("text", {x:42, y:212, "font-size":14}, "The highlighted byte value becomes the selector for which region of array2 is touched.");
+
+  add("rect", {x:260, y:250, width:300, height:90, rx:14, fill:"#111936", stroke:"#6e84c6"});
+  add("text", {x:280, y:285, "font-size":18}, "value = array1[x] = " + value);
+  add("text", {x:280, y:315, "font-size":18}, "target = value × 128");
+  add("text", {x:280, y:345, "font-size":18, "font-weight":"700"}, "target offset = " + offset);
+
+  add("line", {x1:410, y1:225, x2:410, y2:248, stroke:"#7cc7ff", "stroke-width":4});
+  add("polygon", {points:"404,242 416,242 410,252", fill:"#7cc7ff"});
+
+  add("rect", {x:24, y:375, width:770, height:205, rx:14, fill:"#182246", stroke:"#5a7bd1"});
+  add("text", {x:42, y:405, "font-size":22, "font-weight":"700"}, "array2 full layout");
+  add("text", {x:42, y:428, "font-size":14}, "Shown as one larger array divided into 16 equal regions of 128 bytes each.");
+
+  const arrayX = 42, arrayY = 455, arrayW = 730, arrayH = 56;
+  add("rect", {x:arrayX, y:arrayY, width:arrayW, height:arrayH, rx:8, fill:"#0f1530", stroke:"#6e84c6"});
+
+  const segW = arrayW / count;
+  for (let i = 0; i < count; i++){
+    const sx = arrayX + i * segW;
+    add("rect", {
+      x: sx, y: arrayY, width: segW, height: arrayH,
+      fill: i === value ? "#6a4f18" : "#5b2028",
+      stroke: i === value ? "#ffd479" : "#c78484",
+      "stroke-width": i === value ? 2.5 : 1.1
+    });
+    add("text", {x: sx + segW/2 - 5, y: arrayY + 22, "font-size":13, "font-weight":"700"}, String(i));
+    add("text", {x: sx + 4, y: arrayY + 42, "font-size":10}, String(i*scale));
+  }
+
+  add("text", {x:arrayX, y: arrayY - 14, "font-size":12}, "byte 0");
+  add("text", {x:arrayX + arrayW - 68, y: arrayY - 14, "font-size":12}, "byte " + (fullArrayBytes - 1));
+  add("text", {x:42, y:540, "font-size":14}, "Each colored section is a contiguous chunk of the full array2. Only one section is selected for a given value.");
+
+  const targetCx = arrayX + value * segW + segW/2;
+  add("line", {x1:410, y1:340, x2:targetCx, y2:452, stroke:"#ffcc66", "stroke-width":4});
+  add("polygon", {points:(targetCx-7)+",444 "+(targetCx+7)+",444 "+targetCx+",456", fill:"#ffcc66"});
+
+  add("text", {x:42, y:570, "font-size":14}, "Selected region:");
+  const zoomX = 150, zoomY = 548, zoomW = 220, zoomH = 22;
+  add("rect", {x: zoomX, y: zoomY, width: zoomW, height: zoomH, rx:5, fill:"#6a4f18", stroke:"#ffd479", "stroke-width":2});
+  add("text", {x: zoomX + 10, y: zoomY + 15, "font-size":12}, "array2[" + offset + " ... " + (offset + scale - 1) + "]");
+
+  $("#mapExplain").innerHTML =
+    "With <code>x = " + x + "</code>, the load reads <code>array1[" + x + "] = " + value + "</code>. " +
+    "The next step computes <code>array2[" + value + " * 128]</code>, so the access lands in the section beginning at byte offset <b>" + offset + "</b>.";
+}
+
+["#safeLen","#xVal","#secretVal","#predVal","#probeTouched","#noiseVal"].forEach(id=>{
+  const el = $(id);
+  if (el) el.addEventListener("input", updateLabels);
+});
+["#mapX"].forEach(id=>{
+  const el = $(id);
+  if (el) el.addEventListener("input", updateMapLabels);
+});
+if ($("#mapRandomize")) {
+  $("#mapRandomize").addEventListener("click", ()=>{
+    for (let i = 0; i < mappingData.length; i++){
+      mappingData[i] = Math.floor(Math.random() * 16);
+    }
+    drawMappingTab();
+  });
+}
+
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    const name = btn.dataset.tab;
+    $("#mappingTab").style.display = name === "mapping" ? "" : "none";
+    $("#tutorialTab").style.display = name === "tutorial" ? "" : "none";
+    $("#probeTab").style.display = name === "probe" ? "" : "none";
+    $("#summaryTab").style.display = name === "summary" ? "" : "none";
+    if (name === "mapping") drawMappingTab();
+  });
+});
+
+function drawArray1(){
+  const g = $("#array1Cells");
+  g.innerHTML = "";
+  const safeLen = Number($("#safeLen").value);
+  const x = Number($("#xVal").value);
+  const secretVal = Number($("#secretVal").value);
+  const cellW = 40, cellH = 42, startX = 42, startY = 285;
+  for (let i = 0; i < 8; i++){
+    const idx = i;
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", startX + i*(cellW+6));
+    rect.setAttribute("y", startY);
+    rect.setAttribute("width", cellW);
+    rect.setAttribute("height", cellH);
+    rect.setAttribute("rx", 8);
+    rect.setAttribute("fill", idx < safeLen ? "#1a4730" : "#3a2020");
+    rect.setAttribute("stroke", idx === x ? "#7cc7ff" : "#6e84c6");
+    rect.setAttribute("stroke-width", idx === x ? "3" : "1.5");
+    g.appendChild(rect);
+
+    const t1 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    t1.setAttribute("x", startX + i*(cellW+6) + 8);
+    t1.setAttribute("y", startY + 16);
+    t1.setAttribute("font-size", "12");
+    t1.textContent = "i=" + idx;
+    g.appendChild(t1);
+
+    const t2 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    t2.setAttribute("x", startX + i*(cellW+6) + 15);
+    t2.setAttribute("y", startY + 33);
+    t2.setAttribute("font-size", "13");
+    t2.textContent = (idx * 2) & 15;
+    g.appendChild(t2);
+  }
+
+  const gapText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  gapText.setAttribute("x", 390);
+  gapText.setAttribute("y", 314);
+  gapText.setAttribute("font-size", "26");
+  gapText.textContent = "…";
+  g.appendChild(gapText);
+
+  const secretRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  secretRect.setAttribute("x", 265);
+  secretRect.setAttribute("y", 338);
+  secretRect.setAttribute("width", 64);
+  secretRect.setAttribute("height", 42);
+  secretRect.setAttribute("rx", 8);
+  secretRect.setAttribute("fill", "#5b2028");
+  secretRect.setAttribute("stroke", x >= safeLen ? "#7cc7ff" : "#6e84c6");
+  secretRect.setAttribute("stroke-width", x >= safeLen ? "3" : "1.5");
+  g.appendChild(secretRect);
+
+  const st1 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  st1.setAttribute("x", 275);
+  st1.setAttribute("y", 354);
+  st1.setAttribute("font-size", "12");
+  st1.textContent = "secret byte";
+  g.appendChild(st1);
+
+  const st2 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  st2.setAttribute("x", 292);
+  st2.setAttribute("y", 372);
+  st2.setAttribute("font-size", "15");
+  st2.setAttribute("font-weight", "700");
+  st2.textContent = secretVal;
+  g.appendChild(st2);
+
+  const info = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  info.setAttribute("x", 42);
+  info.setAttribute("y", 370);
+  info.setAttribute("font-size", "14");
+  info.textContent = x < safeLen
+    ? "Current x is in-bounds, so the normal path is architecturally valid."
+    : "Current x is out-of-bounds, so the secret is only touched transiently in this toy model.";
+  g.appendChild(info);
+}
+
+function drawCache(){
+  const g = $("#cacheCells");
+  g.innerHTML = "";
+  const leakedLine = state.leakedLine;
+  const startX = 438, startY = 285;
+  const cols = 4, cellW = 72, cellH = 42;
+  for (let i = 0; i < 16; i++){
+    const cx = startX + (i % cols) * (cellW + 14);
+    const cy = startY + Math.floor(i / cols) * (cellH + 14);
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", cx);
+    rect.setAttribute("y", cy);
+    rect.setAttribute("width", cellW);
+    rect.setAttribute("height", cellH);
+    rect.setAttribute("rx", 8);
+    let fill = "#101731";
+    if (state.ran && leakedLine === i) fill = "#284d8f";
+    if (state.probed && leakedLine === i) fill = "#6a4f18";
+    rect.setAttribute("fill", fill);
+    rect.setAttribute("stroke", "#6e84c6");
+    rect.setAttribute("stroke-width", "1.5");
+    if (state.ran && leakedLine === i) rect.setAttribute("filter", "url(#glow)");
+    g.appendChild(rect);
+
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    t.setAttribute("x", cx + 24);
+    t.setAttribute("y", cy + 25);
+    t.setAttribute("font-size", "16");
+    t.textContent = "line " + i;
+    g.appendChild(t);
+  }
+}
+
+function drawProbeBars(vals){
+  const g = $("#probeBars");
+  g.innerHTML = "";
+  const startX = 42, width = 42;
+  vals.forEach((v,i)=>{
+    const base = 560;
+    const h = v == null ? 0 : Math.max(10, 140 - v*2);
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", startX + i*46);
+    rect.setAttribute("y", base - h);
+    rect.setAttribute("width", width);
+    rect.setAttribute("height", h);
+    rect.setAttribute("rx", 6);
+    rect.setAttribute("fill", (state.probed && i === state.leakedLine) ? "#ffcc66" : "#4a6ebf");
+    rect.setAttribute("stroke", "#8ab4ff");
+    g.appendChild(rect);
+
+    const lab = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    lab.setAttribute("x", startX + i*46 + 10);
+    lab.setAttribute("y", 582);
+    lab.setAttribute("font-size", "12");
+    lab.textContent = i;
+    g.appendChild(lab);
+
+    if (v != null){
+      const val = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      val.setAttribute("x", startX + i*46 + 4);
+      val.setAttribute("y", base - h - 6);
+      val.setAttribute("font-size", "11");
+      val.textContent = v.toFixed(0);
+      g.appendChild(val);
+    }
+  });
+}
+
+function setStepText(html){
+  $("#stepText").innerHTML = html;
+}
+
+function resetAll(){
+  state.trained = false;
+  state.ran = false;
+  state.probed = false;
+  state.leakedLine = null;
+  state.speculativeTaken = false;
+  state.timings = [];
+  $("#pipeState").textContent = "Idle";
+  $("#boundsState").textContent = "Unknown";
+  $("#leakState").textContent = "None";
+  $("#checkBox").setAttribute("fill", "#111936");
+  $("#load1Box").setAttribute("fill", "#111936");
+  $("#load2Box").setAttribute("fill", "#111936");
+  drawArray1();
+  drawCache();
+  drawProbeBars(new Array(16).fill(null));
+  setStepText("Press <b>Train predictor</b> to start. The victim repeatedly accesses valid indices, so the predictor learns that the bounds check usually passes.");
+}
+
+$("#resetBtn").addEventListener("click", resetAll);
+
+$("#trainBtn").addEventListener("click", ()=>{
+  state.trained = true;
+  state.ran = false;
+  state.probed = false;
+  state.leakedLine = null;
+  $("#pipeState").textContent = "Predictor trained";
+  $("#boundsState").textContent = "Usually true";
+  $("#leakState").textContent = "None";
+  $("#checkBox").setAttribute("fill", "#1f3a6a");
+  $("#load1Box").setAttribute("fill", "#111936");
+  $("#load2Box").setAttribute("fill", "#111936");
+  drawCache();
+  drawProbeBars(new Array(16).fill(null));
+  setStepText(
+    "The predictor has now seen many <b>in-bounds</b> accesses. It expects the condition <code>x &lt; safe_len</code> to pass, so it is willing to start work on the body before the check is fully resolved."
+  );
+});
+
+$("#runBtn").addEventListener("click", ()=>{
+  const safeLen = Number($("#safeLen").value);
+  const x = Number($("#xVal").value);
+  const secret = Number($("#secretVal").value);
+  const pred = Number($("#predVal").value);
+
+  const inBounds = x < safeLen;
+  const mispredict = !inBounds && state.trained && (Math.random()*100 < pred);
+
+  state.ran = true;
+  state.probed = false;
+  $("#checkBox").setAttribute("fill", "#22457a");
+  $("#load1Box").setAttribute("fill", "#22457a");
+  $("#load2Box").setAttribute("fill", "#22457a");
+
+  if (inBounds){
+    state.speculativeTaken = true;
+    state.leakedLine = (x * 2) & 15;
+    $("#pipeState").textContent = "Normal execution";
+    $("#boundsState").textContent = "Passes";
+    $("#leakState").textContent = "Line " + state.leakedLine;
+    setStepText(
+      "Here <code>x</code> is actually in-bounds, so the access is just normal execution. The data value selects a cache line in <code>array2</code>."
+    );
+  } else if (mispredict){
+    state.speculativeTaken = true;
+    state.leakedLine = secret;
+    $("#pipeState").textContent = "Transient execution";
+    $("#boundsState").textContent = "Eventually fails";
+    $("#leakState").textContent = "Line " + state.leakedLine;
+    setStepText(
+      "The predictor guessed <b>taken</b>, so the CPU transiently executed the body using an out-of-bounds index. In this toy model, that reads the adjacent secret byte (<b>" +
+      secret +
+      "</b>) and uses it to touch <code>array2[" + secret + " * 16]</code>. Later the CPU realizes the bounds check failed and discards the architectural result — but the cache line may remain warm."
+    );
+  } else {
+    state.speculativeTaken = false;
+    state.leakedLine = null;
+    $("#pipeState").textContent = "Correctly blocked";
+    $("#boundsState").textContent = "Fails";
+    $("#leakState").textContent = "None";
+    setStepText(
+      "This time the out-of-bounds access did <b>not</b> produce the interesting transient path in the toy model, so no data-dependent cache line was left behind."
+    );
+  }
+
+  drawArray1();
+  drawCache();
+  drawProbeBars(new Array(16).fill(null));
+});
+
+$("#probeBtn").addEventListener("click", ()=>{
+  if (!state.ran) {
+    setStepText("Run the victim lookup first, then probe the cache.");
+    return;
+  }
+  state.probed = true;
+  const timings = [];
+  for (let i = 0; i < 16; i++){
+    let t = 75 + randn() * 4;
+    if (state.leakedLine === i) t = 18 + randn() * 3;
+    timings.push(Math.max(5, t));
+  }
+  state.timings = timings;
+  drawCache();
+  drawProbeBars(timings);
+  if (state.leakedLine == null){
+    setStepText(
+      "The probe sees no standout fast line, so there is no clear leakage signal in this run."
+    );
+  } else {
+    setStepText(
+      "One probe is much faster than the others: <b>line " + state.leakedLine + "</b>. That timing difference reveals the value used during transient execution."
+    );
+  }
+});
+
+function runProbeOnly(){
+  const touched = Number($("#probeTouched").value);
+  const noise = Number($("#noiseVal").value);
+  const svg = $("#probeOnlySvg");
+  svg.innerHTML = "";
+  const vals = [];
+  for (let i = 0; i < 16; i++){
+    let base = 80 + randn() * (noise/3);
+    if (i === touched) base = 20 + randn() * (Math.max(2, noise/5));
+    vals.push(Math.max(5, base));
+  }
+  const minIdx = vals.indexOf(Math.min(...vals));
+  $("#fastestLine").textContent = minIdx;
+  $("#fastestText").textContent = "Leaked value ≈ " + minIdx;
+
+  const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  title.setAttribute("x", 24);
+  title.setAttribute("y", 30);
+  title.setAttribute("font-size", "24");
+  title.setAttribute("font-weight", "700");
+  title.textContent = "Probe latencies by candidate cache line";
+  svg.appendChild(title);
+
+  const startX = 38, baseY = 440, barW = 36, gap = 12;
+  vals.forEach((v,i)=>{
+    const h = Math.max(10, 320 - v*3);
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", startX + i*(barW+gap));
+    rect.setAttribute("y", baseY - h);
+    rect.setAttribute("width", barW);
+    rect.setAttribute("height", h);
+    rect.setAttribute("rx", 6);
+    rect.setAttribute("fill", i === minIdx ? "#ffcc66" : "#4a6ebf");
+    rect.setAttribute("stroke", "#8ab4ff");
+    svg.appendChild(rect);
+
+    const tx = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    tx.setAttribute("x", startX + i*(barW+gap) + 10);
+    tx.setAttribute("y", 466);
+    tx.setAttribute("font-size", "12");
+    tx.textContent = i;
+    svg.appendChild(tx);
+
+    const tv = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    tv.setAttribute("x", startX + i*(barW+gap) + 2);
+    tv.setAttribute("y", baseY - h - 8);
+    tv.setAttribute("font-size", "11");
+    tv.textContent = v.toFixed(0);
+    svg.appendChild(tv);
+  });
+
+  const axis = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  axis.setAttribute("x1", 28);
+  axis.setAttribute("y1", 440);
+  axis.setAttribute("x2", 790);
+  axis.setAttribute("y2", 440);
+  axis.setAttribute("stroke", "#cfe1ff");
+  svg.appendChild(axis);
+
+  const note = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  note.setAttribute("x", 24);
+  note.setAttribute("y", 500);
+  note.setAttribute("font-size", "15");
+  note.textContent = "Lower latency suggests the line was cached earlier.";
+  svg.appendChild(note);
+}
+
+$("#runProbeOnly").addEventListener("click", runProbeOnly);
+
+updateLabels();
+updateMapLabels();
+resetAll();
+runProbeOnly();
+</script>
+</body>
+</html>

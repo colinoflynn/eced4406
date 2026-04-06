@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>T-Test Timing Leakage Explorer</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #111827;
+    --panel2: #1f2937;
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+    --accent: #60a5fa;
+    --accent2: #34d399;
+    --warn: #f59e0b;
+    --danger: #f87171;
+    --grid: #334155;
+    --border: #374151;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: linear-gradient(180deg, #0b1220, #111827);
+    color: var(--text);
+  }
+  header {
+    padding: 18px 24px 10px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(15,23,42,0.85);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(8px);
+  }
+  h1 {
+    margin: 0 0 6px 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+  header p {
+    margin: 0;
+    color: var(--muted);
+    max-width: 1100px;
+    line-height: 1.35;
+  }
+  .page {
+    padding: 18px 18px 28px;
+  }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .tab-btn {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .tab-btn.active {
+    outline: 2px solid var(--accent);
+    background: #172554;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 330px 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .panel {
+    background: rgba(17,24,39,0.92);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.22);
+  }
+  .controls h2, .viz h2 {
+    margin: 0 0 10px 0;
+    font-size: 1.02rem;
+  }
+  .control-group {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .control-group:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+    margin: 8px 0;
+  }
+  label {
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  .value {
+    color: var(--accent2);
+    font-variant-numeric: tabular-nums;
+    min-width: 72px;
+    text-align: right;
+  }
+  input[type=range] {
+    width: 100%;
+    margin-top: 4px;
+  }
+  select, button {
+    background: #0f172a;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font: inherit;
+  }
+  button {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button:hover {
+    border-color: var(--accent);
+  }
+  .button-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0,1fr));
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .stat-box {
+    background: #0b1220;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+  }
+  .stat-box .k {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .stat-box .v {
+    margin-top: 4px;
+    font-size: 1.15rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .formula {
+    background: #0b1220;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: #dbeafe;
+    line-height: 1.5;
+    margin-top: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .viz-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  canvas {
+    width: 100%;
+    height: 290px;
+    background: #0a0f1d;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: block;
+  }
+  .canvas-title {
+    margin: 8px 0 6px;
+    font-weight: 700;
+    color: #cbd5e1;
+  }
+  .note {
+    margin-top: 12px;
+    color: var(--muted);
+    line-height: 1.4;
+    font-size: 0.93rem;
+  }
+  .verdict {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: #0b1220;
+  }
+  .verdict strong {
+    font-size: 1.05rem;
+  }
+  .pill {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-left: 8px;
+  }
+  .pill.good { background: rgba(52,211,153,0.18); color: #86efac; }
+  .pill.warn { background: rgba(245,158,11,0.18); color: #fcd34d; }
+  .pill.bad { background: rgba(248,113,113,0.16); color: #fca5a5; }
+  .hidden { display: none; }
+  @media (max-width: 1000px) {
+    .layout { grid-template-columns: 1fr; }
+    .viz-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>T-Test Timing Leakage Explorer</h1>
+  <p>
+    Interactive intuition builder for timing leakage. Compare two populations
+    ("fixed" and "random"), see the t-statistic evolve with more samples, and
+    explore how a localized leakage window appears in waveform-based TVLA-style plots.
+  </p>
+</header>
+
+<div class="page">
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="scalar">1. Scalar Timing Distributions</button>
+    <button class="tab-btn" data-tab="running">2. Running T-Statistic</button>
+    <button class="tab-btn" data-tab="waveform">3. Waveform Leakage Over Time</button>
+  </div>
+
+  <div class="layout">
+    <aside class="panel controls">
+      <h2>Controls</h2>
+
+      <div id="controls-scalar" class="tab-controls">
+        <div class="control-group">
+          <div class="row"><label for="preset">Scenario preset</label><select id="preset">
+            <option value="no">No leakage</option>
+            <option value="small" selected>Small leakage</option>
+            <option value="moderate">Moderate leakage</option>
+            <option value="highnoise">High-noise leakage</option>
+          </select></div>
+          <div class="button-row">
+            <button id="regenScalar">Resample timings</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="row"><label>Fixed mean</label><span class="value" id="fixedMeanVal"></span></div>
+          <input id="fixedMean" type="range" min="95" max="125" value="100" step="0.1" />
+          <div class="row"><label>Random mean</label><span class="value" id="randomMeanVal"></span></div>
+          <input id="randomMean" type="range" min="95" max="125" value="101" step="0.1" />
+          <div class="row"><label>Noise σ</label><span class="value" id="sigmaVal"></span></div>
+          <input id="sigma" type="range" min="0.2" max="12" value="4" step="0.1" />
+          <div class="row"><label>Samples per group</label><span class="value" id="nVal"></span></div>
+          <input id="n" type="range" min="20" max="5000" value="300" step="10" />
+        </div>
+      </div>
+
+      <div id="controls-running" class="tab-controls hidden">
+        <div class="control-group">
+          <div class="button-row">
+            <button id="regenRunning">Resimulate run</button>
+            <button id="animateRunning">Animate accumulation</button>
+          </div>
+        </div>
+        <div class="control-group">
+          <div class="row"><label>True mean difference</label><span class="value" id="runDeltaVal"></span></div>
+          <input id="runDelta" type="range" min="0" max="6" value="1.2" step="0.05" />
+          <div class="row"><label>Noise σ</label><span class="value" id="runSigmaVal"></span></div>
+          <input id="runSigma" type="range" min="0.5" max="12" value="4" step="0.1" />
+          <div class="row"><label>Maximum traces / group</label><span class="value" id="runNVal"></span></div>
+          <input id="runN" type="range" min="20" max="5000" value="1000" step="20" />
+        </div>
+      </div>
+
+      <div id="controls-waveform" class="tab-controls hidden">
+        <div class="control-group">
+          <div class="button-row">
+            <button id="regenWaveform">Resample traces</button>
+          </div>
+        </div>
+        <div class="control-group">
+          <div class="row"><label>Traces / group</label><span class="value" id="wfNVal"></span></div>
+          <input id="wfN" type="range" min="10" max="800" value="120" step="10" />
+          <div class="row"><label>Noise σ</label><span class="value" id="wfSigmaVal"></span></div>
+          <input id="wfSigma" type="range" min="0.1" max="4" value="0.8" step="0.05" />
+          <div class="row"><label>Leakage amplitude</label><span class="value" id="wfAmpVal"></span></div>
+          <input id="wfAmp" type="range" min="0" max="3" value="0.55" step="0.02" />
+          <div class="row"><label>Leakage width</label><span class="value" id="wfWidthVal"></span></div>
+          <input id="wfWidth" type="range" min="2" max="40" value="10" step="1" />
+          <div class="row"><label>Leakage center</label><span class="value" id="wfCenterVal"></span></div>
+          <input id="wfCenter" type="range" min="20" max="230" value="120" step="1" />
+        </div>
+      </div>
+
+      <div class="formula" id="formulaBox">
+t = (mean_fixed - mean_random) / sqrt(var_fixed/n_fixed + var_random/n_random)
+
+Common classroom TVLA threshold:
+|t| > 4.5  →  potential leakage
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-box"><div class="k">Sample mean (fixed)</div><div class="v" id="statMeanA">—</div></div>
+        <div class="stat-box"><div class="k">Sample mean (random)</div><div class="v" id="statMeanB">—</div></div>
+        <div class="stat-box"><div class="k">Sample σ (fixed)</div><div class="v" id="statStdA">—</div></div>
+        <div class="stat-box"><div class="k">Sample σ (random)</div><div class="v" id="statStdB">—</div></div>
+        <div class="stat-box"><div class="k">Current n / group</div><div class="v" id="statN">—</div></div>
+        <div class="stat-box"><div class="k">Current t-statistic</div><div class="v" id="statT">—</div></div>
+      </div>
+
+      <div class="verdict" id="verdictBox">
+        <strong>Verdict:</strong> <span id="verdictText">—</span>
+      </div>
+
+      <div class="note">
+        Teaching idea: emphasize that a larger t-statistic can come from either a bigger mean gap,
+        lower noise, or more samples. A statistically significant result is evidence of a measurable
+        difference between groups, not automatically proof of practical exploitability.
+      </div>
+    </aside>
+
+    <main class="panel viz">
+      <h2 id="vizTitle">Scalar Timing Distributions</h2>
+
+      <div id="tab-scalar" class="tab-pane">
+        <div class="viz-grid">
+          <div>
+            <div class="canvas-title">Distribution / histogram view</div>
+            <canvas id="scalarHist" width="720" height="300"></canvas>
+          </div>
+          <div>
+            <div class="canvas-title">Dot plot / raw samples</div>
+            <canvas id="scalarDots" width="720" height="300"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-running" class="tab-pane hidden">
+        <div class="viz-grid">
+          <div>
+            <div class="canvas-title">Running t-statistic vs number of traces</div>
+            <canvas id="runningT" width="720" height="300"></canvas>
+          </div>
+          <div>
+            <div class="canvas-title">Running means of the two groups</div>
+            <canvas id="runningMeans" width="720" height="300"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-waveform" class="tab-pane hidden">
+        <div class="viz-grid">
+          <div>
+            <div class="canvas-title">Average trace: fixed vs random</div>
+            <canvas id="waveAvg" width="720" height="300"></canvas>
+          </div>
+          <div>
+            <div class="canvas-title">t-statistic across time</div>
+            <canvas id="waveT" width="720" height="300"></canvas>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  const state = {
+    activeTab: "scalar",
+    scalar: { a: [], b: [] },
+    running: { a: [], b: [], tSeries: [], meanASeries: [], meanBSeries: [], animHandle: null },
+    waveform: { meanA: [], meanB: [], tSeries: [], leakStart: 0, leakEnd: 0 }
+  };
+
+  const colors = {
+    bg: "#0a0f1d",
+    grid: "#334155",
+    text: "#e5e7eb",
+    muted: "#94a3b8",
+    a: "#60a5fa",
+    b: "#34d399",
+    warn: "#f59e0b",
+    bad: "#f87171",
+    line: "#cbd5e1"
+  };
+
+  function randn() {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  function gaussianPulse(i, center, width, amp) {
+    const z = (i - center) / width;
+    return amp * Math.exp(-0.5 * z * z);
+  }
+
+  function mean(arr) {
+    return arr.reduce((a, b) => a + b, 0) / arr.length;
+  }
+  function variance(arr, m = null) {
+    if (arr.length < 2) return 0;
+    const mu = (m === null) ? mean(arr) : m;
+    let s = 0;
+    for (const v of arr) s += (v - mu) * (v - mu);
+    return s / (arr.length - 1);
+  }
+  function stddev(arr, m = null) {
+    return Math.sqrt(variance(arr, m));
+  }
+  function welchT(a, b) {
+    const ma = mean(a), mb = mean(b);
+    const va = variance(a, ma), vb = variance(b, mb);
+    const denom = Math.sqrt(va / a.length + vb / b.length);
+    return denom === 0 ? 0 : (ma - mb) / denom;
+  }
+  function fmt(x, digits=3) {
+    return Number.isFinite(x) ? x.toFixed(digits) : "—";
+  }
+
+  function setLabel(id, value, suffix="") {
+    $(id).textContent = `${value}${suffix}`;
+  }
+
+  function drawAxes(ctx, x, y, w, h, opts={}) {
+    const { xLabel="", yLabel="", title="" } = opts;
+    ctx.strokeStyle = colors.grid;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = colors.text;
+    ctx.font = "12px sans-serif";
+    if (title) ctx.fillText(title, x + 8, y + 16);
+    if (xLabel) ctx.fillText(xLabel, x + w / 2 - 30, y + h + 22);
+    if (yLabel) {
+      ctx.save();
+      ctx.translate(x - 32, y + h / 2 + 30);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(yLabel, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  function clearCanvas(cv) {
+    const ctx = cv.getContext("2d");
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = colors.bg;
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    return ctx;
+  }
+
+  function drawGrid(ctx, x, y, w, h, nx=8, ny=5) {
+    ctx.strokeStyle = "#1f2937";
+    ctx.lineWidth = 1;
+    for (let i = 1; i < nx; i++) {
+      const xx = x + i * w / nx;
+      ctx.beginPath(); ctx.moveTo(xx, y); ctx.lineTo(xx, y + h); ctx.stroke();
+    }
+    for (let i = 1; i < ny; i++) {
+      const yy = y + i * h / ny;
+      ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke();
+    }
+  }
+
+  function updateVerdict(t) {
+    const absT = Math.abs(t);
+    let pillClass, text;
+    if (absT > 4.5) {
+      pillClass = "bad";
+      text = `Potential leakage detected (|t| = ${fmt(absT,2)} exceeds 4.5)`;
+    } else if (absT > 3.0) {
+      pillClass = "warn";
+      text = `Borderline / rising evidence (|t| = ${fmt(absT,2)} below 4.5)`;
+    } else {
+      pillClass = "good";
+      text = `No strong evidence at current settings (|t| = ${fmt(absT,2)})`;
+    }
+    $("verdictText").innerHTML = text + ` <span class="pill ${pillClass}">${absT > 4.5 ? "FLAGGED" : absT > 3.0 ? "WATCH" : "QUIET"}</span>`;
+  }
+
+  function updateStatsFromArrays(a, b) {
+    const ma = mean(a), mb = mean(b);
+    const sa = stddev(a, ma), sb = stddev(b, mb);
+    const t = welchT(a, b);
+    $("statMeanA").textContent = fmt(ma, 3);
+    $("statMeanB").textContent = fmt(mb, 3);
+    $("statStdA").textContent = fmt(sa, 3);
+    $("statStdB").textContent = fmt(sb, 3);
+    $("statN").textContent = `${a.length}`;
+    $("statT").textContent = fmt(t, 3);
+    updateVerdict(t);
+  }
+
+  function genScalarData() {
+    const fixedMean = parseFloat($("fixedMean").value);
+    const randomMean = parseFloat($("randomMean").value);
+    const sigma = parseFloat($("sigma").value);
+    const n = parseInt($("n").value, 10);
+    state.scalar.a = Array.from({length: n}, () => fixedMean + sigma * randn());
+    state.scalar.b = Array.from({length: n}, () => randomMean + sigma * randn());
+    updateStatsFromArrays(state.scalar.a, state.scalar.b);
+    drawScalar();
+  }
+
+  function drawHistogramOverlay(canvas, a, b) {
+    const ctx = clearCanvas(canvas);
+    const m = 50;
+    const x = m, y = 25, w = canvas.width - m - 20, h = canvas.height - 50;
+    drawAxes(ctx, x, y, w, h, { xLabel: "Timing", yLabel: "Count" });
+    drawGrid(ctx, x, y, w, h);
+
+    const all = a.concat(b);
+    let minV = Math.min(...all), maxV = Math.max(...all);
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+    const bins = 26;
+    const bw = (maxV - minV) / bins;
+    const histA = Array(bins).fill(0), histB = Array(bins).fill(0);
+    for (const v of a) histA[Math.min(bins - 1, Math.floor((v - minV) / bw))]++;
+    for (const v of b) histB[Math.min(bins - 1, Math.floor((v - minV) / bw))]++;
+    const maxC = Math.max(...histA, ...histB, 1);
+
+    function drawBars(hist, color) {
+      ctx.fillStyle = color;
+      for (let i = 0; i < bins; i++) {
+        const bx = x + i * w / bins + 1;
+        const bh = (hist[i] / maxC) * (h - 4);
+        ctx.globalAlpha = 0.45;
+        ctx.fillRect(bx, y + h - bh, w / bins - 3, bh);
+        ctx.globalAlpha = 1.0;
+      }
+    }
+    drawBars(histA, colors.a);
+    drawBars(histB, colors.b);
+
+    const ma = mean(a), mb = mean(b);
+    function markMean(val, color, label) {
+      const xx = x + ((val - minV) / (maxV - minV)) * w;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(xx, y); ctx.lineTo(xx, y + h); ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.fillText(label + " mean", Math.min(canvas.width - 68, xx + 4), y + 16);
+    }
+    markMean(ma, colors.a, "Fixed");
+    markMean(mb, colors.b, "Random");
+
+    ctx.fillStyle = colors.a; ctx.fillText("Fixed", x + 6, y + 14);
+    ctx.fillStyle = colors.b; ctx.fillText("Random", x + 60, y + 14);
+
+    ctx.fillStyle = colors.muted;
+    ctx.fillText(minV.toFixed(1), x, y + h + 16);
+    ctx.fillText(maxV.toFixed(1), x + w - 34, y + h + 16);
+  }
+
+  function drawDotPlot(canvas, a, b) {
+    const ctx = clearCanvas(canvas);
+    const m = 50;
+    const x = m, y = 25, w = canvas.width - m - 20, h = canvas.height - 50;
+    drawAxes(ctx, x, y, w, h, { xLabel: "Timing", yLabel: "Group" });
+    drawGrid(ctx, x, y, w, h, 8, 2);
+
+    const all = a.concat(b);
+    let minV = Math.min(...all), maxV = Math.max(...all);
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+
+    function mapX(v) { return x + ((v - minV) / (maxV - minV)) * w; }
+    const yA = y + h * 0.32;
+    const yB = y + h * 0.72;
+
+    ctx.fillStyle = colors.muted;
+    ctx.fillText("Fixed", x - 35, yA + 4);
+    ctx.fillText("Random", x - 45, yB + 4);
+
+    function plot(arr, yy, color) {
+      ctx.fillStyle = color;
+      for (const v of arr) {
+        const xx = mapX(v);
+        const jitter = (Math.random() - 0.5) * 24;
+        ctx.globalAlpha = 0.75;
+        ctx.beginPath();
+        ctx.arc(xx, yy + jitter, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      const mu = mean(arr);
+      const s = stddev(arr, mu);
+      const halfCI = 1.96 * s / Math.sqrt(arr.length);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(mapX(mu), yy - 20);
+      ctx.lineTo(mapX(mu), yy + 20);
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(mapX(mu - halfCI), yy);
+      ctx.lineTo(mapX(mu + halfCI), yy);
+      ctx.stroke();
+    }
+    plot(a, yA, colors.a);
+    plot(b, yB, colors.b);
+
+    ctx.fillStyle = colors.muted;
+    ctx.fillText(minV.toFixed(1), x, y + h + 16);
+    ctx.fillText(maxV.toFixed(1), x + w - 34, y + h + 16);
+  }
+
+  function drawScalar() {
+    drawHistogramOverlay($("scalarHist"), state.scalar.a, state.scalar.b);
+    drawDotPlot($("scalarDots"), state.scalar.a, state.scalar.b);
+  }
+
+  function genRunningData() {
+    const delta = parseFloat($("runDelta").value);
+    const sigma = parseFloat($("runSigma").value);
+    const n = parseInt($("runN").value, 10);
+    const base = 100;
+
+    state.running.a = Array.from({length: n}, () => base + sigma * randn());
+    state.running.b = Array.from({length: n}, () => (base + delta) + sigma * randn());
+
+    computeRunningSeries(n);
+    const finalCount = n;
+    updateRunningStats(finalCount);
+    drawRunning(finalCount);
+  }
+
+  function computeRunningSeries(n) {
+    const A = state.running.a, B = state.running.b;
+    const tSeries = [], meanASeries = [], meanBSeries = [];
+    let sumA = 0, sumB = 0, sumsqA = 0, sumsqB = 0;
+    for (let i = 0; i < n; i++) {
+      sumA += A[i]; sumB += B[i];
+      sumsqA += A[i] * A[i]; sumsqB += B[i] * B[i];
+      const count = i + 1;
+      const ma = sumA / count;
+      const mb = sumB / count;
+      let va = 0, vb = 0;
+      if (count > 1) {
+        va = (sumsqA - count * ma * ma) / (count - 1);
+        vb = (sumsqB - count * mb * mb) / (count - 1);
+      }
+      const denom = Math.sqrt(va / count + vb / count);
+      const t = denom === 0 ? 0 : (ma - mb) / denom;
+      tSeries.push(t);
+      meanASeries.push(ma);
+      meanBSeries.push(mb);
+    }
+    state.running.tSeries = tSeries;
+    state.running.meanASeries = meanASeries;
+    state.running.meanBSeries = meanBSeries;
+  }
+
+  function updateRunningStats(count) {
+    const a = state.running.a.slice(0, count);
+    const b = state.running.b.slice(0, count);
+    updateStatsFromArrays(a, b);
+  }
+
+  function drawLineChart(canvas, seriesList, labels, yLabel, thresholdLines=[]) {
+    const ctx = clearCanvas(canvas);
+    const m = 50;
+    const x = m, y = 25, w = canvas.width - m - 20, h = canvas.height - 50;
+    drawAxes(ctx, x, y, w, h, { xLabel: "Samples", yLabel });
+    drawGrid(ctx, x, y, w, h);
+
+    const all = seriesList.flat().concat(thresholdLines.map(t => t.y));
+    let minV = Math.min(...all), maxV = Math.max(...all);
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+    const pad = (maxV - minV) * 0.08;
+    minV -= pad; maxV += pad;
+
+    const maxN = Math.max(...seriesList.map(s => s.length));
+    function mapX(i) { return x + (i / Math.max(1, maxN - 1)) * w; }
+    function mapY(v) { return y + h - ((v - minV) / (maxV - minV)) * h; }
+
+    for (const thr of thresholdLines) {
+      const yy = mapY(thr.y);
+      ctx.strokeStyle = thr.color;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = thr.color;
+      ctx.fillText(thr.label, x + 6, yy - 4);
+    }
+
+    const palette = [colors.a, colors.b, colors.warn];
+    seriesList.forEach((series, idx) => {
+      ctx.strokeStyle = palette[idx % palette.length];
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      series.forEach((v, i) => {
+        const xx = mapX(i), yy = mapY(v);
+        if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+      });
+      ctx.stroke();
+      ctx.fillStyle = palette[idx % palette.length];
+      ctx.fillText(labels[idx], x + 10 + idx * 90, y + 16);
+    });
+
+    ctx.fillStyle = colors.muted;
+    ctx.fillText("1", x, y + h + 16);
+    ctx.fillText(String(maxN), x + w - 24, y + h + 16);
+    ctx.fillText(maxV.toFixed(1), x + 4, y + 12);
+    ctx.fillText(minV.toFixed(1), x + 4, y + h - 4);
+  }
+
+  function drawRunning(count=null) {
+    const n = count || state.running.tSeries.length;
+    drawLineChart(
+      $("runningT"),
+      [state.running.tSeries.slice(0, n)],
+      ["t-statistic"],
+      "t",
+      [
+        { y: 4.5, color: colors.bad, label: "+4.5" },
+        { y: -4.5, color: colors.bad, label: "-4.5" }
+      ]
+    );
+    drawLineChart(
+      $("runningMeans"),
+      [state.running.meanASeries.slice(0, n), state.running.meanBSeries.slice(0, n)],
+      ["fixed mean", "random mean"],
+      "mean"
+    );
+  }
+
+  function animateRunning() {
+    if (state.running.animHandle) cancelAnimationFrame(state.running.animHandle);
+    let i = 2;
+    const total = state.running.tSeries.length;
+    function step() {
+      drawRunning(i);
+      updateRunningStats(i);
+      i += Math.max(1, Math.floor(total / 120));
+      if (i <= total) {
+        state.running.animHandle = requestAnimationFrame(step);
+      } else {
+        drawRunning(total);
+        updateRunningStats(total);
+      }
+    }
+    step();
+  }
+
+  function genWaveformData() {
+    const n = parseInt($("wfN").value, 10);
+    const sigma = parseFloat($("wfSigma").value);
+    const amp = parseFloat($("wfAmp").value);
+    const width = parseInt($("wfWidth").value, 10);
+    const center = parseInt($("wfCenter").value, 10);
+
+    const len = 256;
+    const A = Array.from({length: n}, () => Array(len).fill(0));
+    const B = Array.from({length: n}, () => Array(len).fill(0));
+
+    for (let tr = 0; tr < n; tr++) {
+      const baselineShiftA = 0.1 * randn();
+      const baselineShiftB = 0.1 * randn();
+      for (let i = 0; i < len; i++) {
+        const baseShape = 0.5 * gaussianPulse(i, 50, 18, 1) + 0.35 * gaussianPulse(i, 190, 22, 1);
+        A[tr][i] = baseShape + baselineShiftA + sigma * 0.35 * randn();
+        B[tr][i] = baseShape + baselineShiftB + sigma * 0.35 * randn() + gaussianPulse(i, center, width, amp);
+      }
+    }
+
+    const meanA = Array(len).fill(0), meanB = Array(len).fill(0), varA = Array(len).fill(0), varB = Array(len).fill(0);
+    for (let i = 0; i < len; i++) {
+      for (let tr = 0; tr < n; tr++) {
+        meanA[i] += A[tr][i];
+        meanB[i] += B[tr][i];
+      }
+      meanA[i] /= n; meanB[i] /= n;
+      for (let tr = 0; tr < n; tr++) {
+        varA[i] += (A[tr][i] - meanA[i]) ** 2;
+        varB[i] += (B[tr][i] - meanB[i]) ** 2;
+      }
+      varA[i] /= Math.max(1, n - 1);
+      varB[i] /= Math.max(1, n - 1);
+    }
+
+    const tSeries = Array(len).fill(0);
+    for (let i = 0; i < len; i++) {
+      const denom = Math.sqrt(varA[i] / n + varB[i] / n);
+      tSeries[i] = denom === 0 ? 0 : (meanA[i] - meanB[i]) / denom;
+    }
+
+    state.waveform.meanA = meanA;
+    state.waveform.meanB = meanB;
+    state.waveform.tSeries = tSeries;
+    state.waveform.leakStart = center - width * 2;
+    state.waveform.leakEnd = center + width * 2;
+
+    updateWaveformStats();
+    drawWaveform();
+  }
+
+  function updateWaveformStats() {
+    const tSeries = state.waveform.tSeries;
+    let peak = 0, peakIdx = 0;
+    for (let i = 0; i < tSeries.length; i++) {
+      if (Math.abs(tSeries[i]) > Math.abs(peak)) { peak = tSeries[i]; peakIdx = i; }
+    }
+    $("statMeanA").textContent = "trace avg";
+    $("statMeanB").textContent = "trace avg";
+    $("statStdA").textContent = "—";
+    $("statStdB").textContent = "—";
+    $("statN").textContent = $("wfN").value;
+    $("statT").textContent = `${fmt(peak, 2)} @ ${peakIdx}`;
+    updateVerdict(peak);
+  }
+
+  function drawTwoSeries(canvas, a, b, labels, yLabel, highlight=null) {
+    const ctx = clearCanvas(canvas);
+    const m = 50;
+    const x = m, y = 25, w = canvas.width - m - 20, h = canvas.height - 50;
+    drawAxes(ctx, x, y, w, h, { xLabel: "Time sample", yLabel });
+    drawGrid(ctx, x, y, w, h);
+
+    const all = a.concat(b);
+    let minV = Math.min(...all), maxV = Math.max(...all);
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+    const pad = (maxV - minV) * 0.1 + 0.05;
+    minV -= pad; maxV += pad;
+
+    if (highlight) {
+      const hx1 = x + (highlight.start / (a.length - 1)) * w;
+      const hx2 = x + (highlight.end / (a.length - 1)) * w;
+      ctx.fillStyle = "rgba(245,158,11,0.16)";
+      ctx.fillRect(hx1, y, hx2 - hx1, h);
+      ctx.fillStyle = colors.warn;
+      ctx.fillText("leakage window", hx1 + 4, y + 16);
+    }
+
+    function mapX(i) { return x + (i / (a.length - 1)) * w; }
+    function mapY(v) { return y + h - ((v - minV) / (maxV - minV)) * h; }
+
+    [[a, colors.a], [b, colors.b]].forEach(([series, color], idx) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      series.forEach((v, i) => {
+        const xx = mapX(i), yy = mapY(v);
+        if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+      });
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.fillText(labels[idx], x + 10 + idx * 110, y + 16);
+    });
+  }
+
+  function drawWaveT(canvas, tSeries, highlight) {
+    const ctx = clearCanvas(canvas);
+    const m = 50;
+    const x = m, y = 25, w = canvas.width - m - 20, h = canvas.height - 50;
+    drawAxes(ctx, x, y, w, h, { xLabel: "Time sample", yLabel: "t" });
+    drawGrid(ctx, x, y, w, h);
+
+    const minV = Math.min(-5, ...tSeries);
+    const maxV = Math.max(5, ...tSeries);
+    const pad = (maxV - minV) * 0.08;
+    const lo = minV - pad, hi = maxV + pad;
+
+    if (highlight) {
+      const hx1 = x + (highlight.start / (tSeries.length - 1)) * w;
+      const hx2 = x + (highlight.end / (tSeries.length - 1)) * w;
+      ctx.fillStyle = "rgba(245,158,11,0.16)";
+      ctx.fillRect(hx1, y, hx2 - hx1, h);
+    }
+
+    function mapX(i) { return x + (i / (tSeries.length - 1)) * w; }
+    function mapY(v) { return y + h - ((v - lo) / (hi - lo)) * h; }
+
+    [4.5, -4.5].forEach(v => {
+      const yy = mapY(v);
+      ctx.strokeStyle = colors.bad;
+      ctx.setLineDash([6,4]);
+      ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + w, yy); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = colors.bad;
+      ctx.fillText(v > 0 ? "+4.5" : "-4.5", x + 4, yy - 4);
+    });
+
+    ctx.strokeStyle = colors.line;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    tSeries.forEach((v, i) => {
+      const xx = mapX(i), yy = mapY(v);
+      if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+    });
+    ctx.stroke();
+  }
+
+  function drawWaveform() {
+    const highlight = { start: Math.max(0, state.waveform.leakStart), end: Math.min(255, state.waveform.leakEnd) };
+    drawTwoSeries($("waveAvg"), state.waveform.meanA, state.waveform.meanB, ["fixed avg", "random avg"], "amplitude", highlight);
+    drawWaveT($("waveT"), state.waveform.tSeries, highlight);
+  }
+
+  function setPreset(name) {
+    const presets = {
+      no: { fixedMean: 100, randomMean: 100, sigma: 4, n: 300 },
+      small: { fixedMean: 100, randomMean: 101, sigma: 4, n: 300 },
+      moderate: { fixedMean: 100, randomMean: 103, sigma: 3.5, n: 300 },
+      highnoise: { fixedMean: 100, randomMean: 101.2, sigma: 8.5, n: 300 }
+    };
+    const p = presets[name];
+    $("fixedMean").value = p.fixedMean;
+    $("randomMean").value = p.randomMean;
+    $("sigma").value = p.sigma;
+    $("n").value = p.n;
+    syncLabels();
+    genScalarData();
+  }
+
+  function syncLabels() {
+    setLabel("fixedMeanVal", parseFloat($("fixedMean").value).toFixed(1));
+    setLabel("randomMeanVal", parseFloat($("randomMean").value).toFixed(1));
+    setLabel("sigmaVal", parseFloat($("sigma").value).toFixed(1));
+    setLabel("nVal", parseInt($("n").value, 10));
+
+    setLabel("runDeltaVal", parseFloat($("runDelta").value).toFixed(2));
+    setLabel("runSigmaVal", parseFloat($("runSigma").value).toFixed(1));
+    setLabel("runNVal", parseInt($("runN").value, 10));
+
+    setLabel("wfNVal", parseInt($("wfN").value, 10));
+    setLabel("wfSigmaVal", parseFloat($("wfSigma").value).toFixed(2));
+    setLabel("wfAmpVal", parseFloat($("wfAmp").value).toFixed(2));
+    setLabel("wfWidthVal", parseInt($("wfWidth").value, 10));
+    setLabel("wfCenterVal", parseInt($("wfCenter").value, 10));
+  }
+
+  function setActiveTab(tab) {
+    state.activeTab = tab;
+    document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
+    document.querySelectorAll(".tab-pane").forEach(p => p.classList.add("hidden"));
+    document.querySelectorAll(".tab-controls").forEach(p => p.classList.add("hidden"));
+    $("tab-" + tab).classList.remove("hidden");
+    $("controls-" + tab).classList.remove("hidden");
+    const titles = {
+      scalar: "Scalar Timing Distributions",
+      running: "Running T-Statistic",
+      waveform: "Waveform Leakage Over Time"
+    };
+    $("vizTitle").textContent = titles[tab];
+
+    if (tab === "scalar") {
+      updateStatsFromArrays(state.scalar.a, state.scalar.b);
+      drawScalar();
+    } else if (tab === "running") {
+      updateRunningStats(state.running.tSeries.length);
+      drawRunning();
+    } else if (tab === "waveform") {
+      updateWaveformStats();
+      drawWaveform();
+    }
+  }
+
+  // Tab buttons
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+  });
+
+  // Scalar control bindings
+  ["fixedMean", "randomMean", "sigma", "n"].forEach(id => {
+    $(id).addEventListener("input", () => { syncLabels(); genScalarData(); });
+  });
+  $("preset").addEventListener("change", e => setPreset(e.target.value));
+  $("regenScalar").addEventListener("click", genScalarData);
+
+  // Running bindings
+  ["runDelta", "runSigma", "runN"].forEach(id => {
+    $(id).addEventListener("input", () => { syncLabels(); genRunningData(); });
+  });
+  $("regenRunning").addEventListener("click", genRunningData);
+  $("animateRunning").addEventListener("click", animateRunning);
+
+  // Waveform bindings
+  ["wfN", "wfSigma", "wfAmp", "wfWidth", "wfCenter"].forEach(id => {
+    $(id).addEventListener("input", () => { syncLabels(); genWaveformData(); });
+  });
+  $("regenWaveform").addEventListener("click", genWaveformData);
+
+  // Init
+  syncLabels();
+  setPreset("small");
+  genRunningData();
+  genWaveformData();
+  setActiveTab("scalar");
+})();
+</script>
+</body>
+</html>
